@@ -53,3 +53,54 @@ def write_tracks_csv(tracks: "list[dict]", path: "Union[str, Path]") -> None:
 
 def write_rated_csv(tracks: "list[dict]", path: "Union[str, Path]") -> None:
     write_tracks_csv(manually_rated(tracks), path)
+
+
+PLAYLIST_CSV_FIELDS = [
+    "playlist",
+    "smart",
+    "position",
+    "track_persistent_id",
+    "title",
+    "artist",
+]
+
+
+def write_playlists_csv(
+    playlists: "list[dict]", tracks: "list[dict]", path: "Union[str, Path]"
+) -> None:
+    by_pid = {t["persistent_id"]: t for t in tracks}
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=PLAYLIST_CSV_FIELDS)
+        writer.writeheader()
+        for p in playlists:
+            for position, pid in enumerate(p["track_persistent_ids"], start=1):
+                track = by_pid.get(pid, {})
+                writer.writerow(
+                    {
+                        "playlist": p["name"],
+                        "smart": _cell(p["smart"]),
+                        "position": position,
+                        "track_persistent_id": pid,
+                        "title": track.get("title", ""),
+                        "artist": track.get("artist", ""),
+                    }
+                )
+
+
+def write_library_json(
+    tracks: "list[dict]",
+    playlists: "list[dict]",
+    source: str,
+    path: "Union[str, Path]",
+    exported_at: "str | None" = None,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "exported_at": exported_at
+        or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source_library": source,
+        "tracks": tracks,
+        "playlists": playlists,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
