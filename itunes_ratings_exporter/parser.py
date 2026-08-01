@@ -32,9 +32,9 @@ def location_to_path(location: str) -> str:
     host = unquote(parsed.netloc)
     path = unquote(parsed.path)
     if host and host.lower() != "localhost":
-        path = "/" + host + path
+        path = "//" + host + path
     elif path.startswith("///"):
-        path = "/" + path.lstrip("/")
+        path = "//" + path.lstrip("/")
     elif len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:]
     return path.replace("/", "\\")

@@ -55,23 +55,23 @@ def test_purchased_compilation_flags():
 def test_location_to_path_mapped_network_drive():
     assert (
         location_to_path("file://localhost/Z:/Music/Aria/T%C3%BAnel.mp3")
-        == "Z:\Music\Aria\Túnel.mp3"
+        == "Z:\\Music\\Aria\\Túnel.mp3"
     )
 
 
 def test_location_to_path_unc_host_in_netloc():
     assert (
         location_to_path("file://SYNOLOGY/music/Aria/song.mp3")
-        == "\\SYNOLOGY\music\Aria\song.mp3"
+        == "\\\\SYNOLOGY\\music\\Aria\\song.mp3"
     )
 
 
 def test_location_to_path_unc_leading_slashes():
     assert (
         location_to_path("file://///SYNOLOGY/music/Aria/song.mp3")
-        == "\\SYNOLOGY\music\Aria\song.mp3"
+        == "\\\\SYNOLOGY\\music\\Aria\\song.mp3"
     )
 
 
 def test_location_to_path_no_host_drive_letter():
-    assert location_to_path("file:///C:/Music/song.mp3") == "C:\Music\song.mp3"
+    assert location_to_path("file:///C:/Music/song.mp3") == "C:\\Music\\song.mp3"
