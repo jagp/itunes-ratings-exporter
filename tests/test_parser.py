@@ -75,3 +75,31 @@ def test_location_to_path_unc_leading_slashes():
 
 def test_location_to_path_no_host_drive_letter():
     assert location_to_path("file:///C:/Music/song.mp3") == "C:\\Music\\song.mp3"
+
+
+def test_location_decodes_percent_encoding_and_backslashes():
+    t = _track(parse_library(FIXTURE), "AAAA1111AAAA1111")
+    assert t["file_path"] == "C:\\Users\\jared\\Música\\Túnel.mp3"
+
+
+def test_location_to_path_empty():
+    assert location_to_path("") == ""
+
+
+def test_system_playlists_excluded():
+    lib = parse_library(FIXTURE)
+    assert [p["name"] for p in lib["playlists"]] == ["Road Trip", "Best Guessed"]
+
+
+def test_playlist_membership_order_and_smart_flag():
+    lib = parse_library(FIXTURE)
+    road = next(p for p in lib["playlists"] if p["name"] == "Road Trip")
+    assert road["smart"] is False
+    assert road["track_persistent_ids"] == [
+        "AAAA1111AAAA1111",
+        "DDDD4444DDDD4444",
+        "CCCC3333CCCC3333",
+    ]
+    smart = next(p for p in lib["playlists"] if p["name"] == "Best Guessed")
+    assert smart["smart"] is True
+    assert smart["track_persistent_ids"] == ["BBBB2222BBBB2222"]
