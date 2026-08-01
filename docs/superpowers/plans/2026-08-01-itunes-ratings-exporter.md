@@ -903,3 +903,129 @@ Expected: exit 0 and summary line `Exported 4 tracks (2 manually rated), 2 playl
 git add itunes_ratings_exporter tests/test_cli.py README.md
 git commit -m "feat: add CLI entry point, end-to-end tests, README"
 ```
+
+---
+
+### Task 6: Network-share (UNC) and mapped-drive path support
+
+**Files:**
+- Modify: `itunes_ratings_exporter/parser.py` (rewrite `location_to_path`)
+- Modify: `tests/test_parser.py` (append unit tests)
+- Modify: `README.md` (add a NAS/network-share note)
+
+**Interfaces:**
+- Consumes: `location_to_path(location: str) -> str` from Task 1.
+- Produces: same signature, now correct for network shares. Later tasks and
+  the downstream Spotify-matching tool rely on `file_path` being a usable
+  Windows path for NAS-hosted libraries.
+
+**Why:** iTunes writes a track's `Location` in three shapes. The Task 1
+implementation reads only `urlparse(...).path`, so for a library hosted on a
+NAS (e.g. Synology) it silently DROPS the server name — producing
+`\music\song.mp3` instead of `\SYNOLOGY\music\song.mp3`. A silently wrong
+path is worse than a crash.
+
+| Location URL | Required output |
+| --- | --- |
+| `file://localhost/C:/Music/song.mp3` | `C:\Music\song.mp3` |
+| `file://localhost/Z:/Music/song.mp3` | `Z:\Music\song.mp3` |
+| `file:///C:/Music/song.mp3` | `C:\Music\song.mp3` |
+| `file://SYNOLOGY/music/song.mp3` | `\SYNOLOGY\music\song.mp3` |
+| `file://///SYNOLOGY/music/song.mp3` | `\SYNOLOGY\music\song.mp3` |
+| `""` | `""` |
+
+Do NOT add a NAS track to `tests/fixtures/library.xml` — several existing
+tests assert exactly 4 tracks. Test `location_to_path` directly instead.
+
+- [ ] **Step 1: Write the failing tests** — append to `tests/test_parser.py`
+      (`location_to_path` is already imported there by Task 2's tests; if that
+      import is absent, add `from itunes_ratings_exporter.parser import location_to_path`):
+
+```python
+def test_location_to_path_mapped_network_drive():
+    assert (
+        location_to_path("file://localhost/Z:/Music/Aria/T%C3%BAnel.mp3")
+        == "Z:\Music\Aria\T\u00fanel.mp3"
+    )
+
+
+def test_location_to_path_unc_host_in_netloc():
+    assert (
+        location_to_path("file://SYNOLOGY/music/Aria/song.mp3")
+        == "\\SYNOLOGY\music\Aria\song.mp3"
+    )
+
+
+def test_location_to_path_unc_leading_slashes():
+    assert (
+        location_to_path("file://///SYNOLOGY/music/Aria/song.mp3")
+        == "\\SYNOLOGY\music\Aria\song.mp3"
+    )
+
+
+def test_location_to_path_no_host_drive_letter():
+    assert location_to_path("file:///C:/Music/song.mp3") == "C:\Music\song.mp3"
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `rtk proxy python -m pytest tests/test_parser.py -v`
+Expected: the three network-path tests FAIL (server name dropped / extra
+slashes); `test_location_to_path_no_host_drive_letter` may already pass.
+NOTE: plain `python -m pytest` output is filtered by a local hook and can
+falsely print "Pytest: No tests collected" — always use `rtk proxy`.
+
+- [ ] **Step 3: Replace `location_to_path`** in `itunes_ratings_exporter/parser.py`:
+
+```python
+def location_to_path(location: str) -> str:
+    """Decode an iTunes ``file://`` URL to a Windows path.
+
+    Handles local and mapped drives (``file://localhost/Z:/...``) as well as
+    the two UNC forms iTunes writes for network shares such as a NAS:
+    ``file://SERVER/share/...`` and ``file://///SERVER/share/...``.
+    """
+    if not location:
+        return ""
+    parsed = urlparse(location)
+    host = unquote(parsed.netloc)
+    path = unquote(parsed.path)
+    if host and host.lower() != "localhost":
+        path = "//" + host + path
+    elif path.startswith("///"):
+        path = "//" + path.lstrip("/")
+    elif len(path) >= 3 and path[0] == "/" and path[2] == ":":
+        path = path[1:]
+    return path.replace("/", "\\")
+```
+
+- [ ] **Step 4: Run the full suite**
+
+Run: `rtk proxy python -m pytest -v`
+Expected: all tests pass, including the pre-existing local-path test
+asserting `C:\Users\jared\Música\Túnel.mp3`.
+
+- [ ] **Step 5: Add a README note** under the Usage section:
+
+```markdown
+### Libraries on a NAS or network share
+
+Works with libraries hosted on a NAS (Synology, etc.), whether reached
+through a mapped drive letter or a UNC path:
+
+```
+python -m itunes_ratings_exporter --library "Z:\Music\iTunes\iTunes Music Library.xml"
+```
+
+Exported `file_path` values preserve whichever form iTunes recorded —
+`Z:\Music\song.mp3` for a mapped drive, `\SERVER\share\song.mp3` for a UNC
+path. Mapped drive letters are per-machine, so a library recorded as `Z:`
+resolves only where that mapping exists.
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add itunes_ratings_exporter/parser.py tests/test_parser.py README.md
+git commit -m "fix: preserve server name in UNC paths for NAS-hosted libraries"
+```
