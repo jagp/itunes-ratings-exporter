@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "itunes-ratings-exporter"
+version = "0.1.0"
+description = "Export ratings, play counts, and playlists from iTunes Music Library.xml to CSV/JSON"
+requires-python = ">=3.9"
+
+[project.scripts]
+itunes-ratings-exporter = "itunes_ratings_exporter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["itunes_ratings_exporter*"]

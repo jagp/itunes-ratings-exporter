@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Major Version</key><integer>1</integer>
+    <key>Minor Version</key><integer>1</integer>
+    <key>Application Version</key><string>12.13.4.4</string>
+    <key>Library Persistent ID</key><string>FFFF0000FFFF0000</string>
+    <key>Tracks</key>
+    <dict>
+        <key>101</key>
+        <dict>
+            <key>Track ID</key><integer>101</integer>
+            <key>Name</key><string>Túnel</string>
+            <key>Artist</key><string>Aria</string>
+            <key>Album Artist</key><string>Aria</string>
+            <key>Album</key><string>Cañón</string>
+            <key>Genre</key><string>Rock</string>
+            <key>Kind</key><string>MPEG audio file</string>
+            <key>Total Time</key><integer>215000</integer>
+            <key>Disc Number</key><integer>1</integer>
+            <key>Track Number</key><integer>3</integer>
+            <key>Year</key><integer>2020</integer>
+            <key>Play Count</key><integer>12</integer>
+            <key>Play Date UTC</key><date>2025-06-01T10:00:00Z</date>
+            <key>Rating</key><integer>100</integer>
+            <key>Persistent ID</key><string>AAAA1111AAAA1111</string>
+            <key>Location</key><string>file://localhost/C:/Users/jared/M%C3%BAsica/T%C3%BAnel.mp3</string>
+        </dict>
+        <key>102</key>
+        <dict>
+            <key>Track ID</key><integer>102</integer>
+            <key>Name</key><string>Guessed</string>
+            <key>Artist</key><string>Aria</string>
+            <key>Album</key><string>Cañón</string>
+            <key>Total Time</key><integer>180000</integer>
+            <key>Rating</key><integer>60</integer>
+            <key>Rating Computed</key><true/>
+            <key>Persistent ID</key><string>BBBB2222BBBB2222</string>
+            <key>Location</key><string>file://localhost/C:/Music/guessed.mp3</string>
+        </dict>
+        <key>103</key>
+        <dict>
+            <key>Track ID</key><integer>103</integer>
+            <key>Name</key><string>Cloudy</string>
+            <key>Artist</key><string>Nimbus</string>
+            <key>Album</key><string>Vapor</string>
+            <key>Total Time</key><integer>200000</integer>
+            <key>Persistent ID</key><string>CCCC3333CCCC3333</string>
+        </dict>
+        <key>104</key>
+        <dict>
+            <key>Track ID</key><integer>104</integer>
+            <key>Name</key><string>Bought</string>
+            <key>Artist</key><string>Store</string>
+            <key>Album</key><string>Receipts</string>
+            <key>Kind</key><string>Purchased AAC audio file</string>
+            <key>Purchased</key><true/>
+            <key>Compilation</key><true/>
+            <key>Total Time</key><integer>240000</integer>
+            <key>Rating</key><integer>80</integer>
+            <key>Play Count</key><integer>3</integer>
+            <key>Persistent ID</key><string>DDDD4444DDDD4444</string>
+            <key>Location</key><string>file://localhost/C:/Music/bought.m4a</string>
+        </dict>
+    </dict>
+    <key>Playlists</key>
+    <array>
+        <dict>
+            <key>Name</key><string>Library</string>
+            <key>Master</key><true/>
+            <key>Playlist ID</key><integer>201</integer>
+            <key>Playlist Persistent ID</key><string>1111AAAA1111AAAA</string>
+            <key>All Items</key><true/>
+            <key>Playlist Items</key>
+            <array>
+                <dict><key>Track ID</key><integer>101</integer></dict>
+                <dict><key>Track ID</key><integer>102</integer></dict>
+                <dict><key>Track ID</key><integer>103</integer></dict>
+                <dict><key>Track ID</key><integer>104</integer></dict>
+            </array>
+        </dict>
+        <dict>
+            <key>Name</key><string>Music</string>
+            <key>Distinguished Kind</key><integer>4</integer>
+            <key>Music</key><true/>
+            <key>Playlist ID</key><integer>202</integer>
+            <key>Playlist Persistent ID</key><string>2222BBBB2222BBBB</string>
+            <key>All Items</key><true/>
+        </dict>
+        <dict>
+            <key>Name</key><string>My Folder</string>
+            <key>Folder</key><true/>
+            <key>Playlist ID</key><integer>203</integer>
+            <key>Playlist Persistent ID</key><string>3333CCCC3333CCCC</string>
+        </dict>
+        <dict>
+            <key>Name</key><string>Road Trip</string>
+            <key>Playlist ID</key><integer>204</integer>
+            <key>Playlist Persistent ID</key><string>4444DDDD4444DDDD</string>
+            <key>All Items</key><true/>
+            <key>Playlist Items</key>
+            <array>
+                <dict><key>Track ID</key><integer>101</integer></dict>
+                <dict><key>Track ID</key><integer>104</integer></dict>
+                <dict><key>Track ID</key><integer>103</integer></dict>
+            </array>
+        </dict>
+        <dict>
+            <key>Name</key><string>Best Guessed</string>
+            <key>Playlist ID</key><integer>205</integer>
+            <key>Playlist Persistent ID</key><string>5555EEEE5555EEEE</string>
+            <key>All Items</key><true/>
+            <key>Smart Info</key><data>AQ==</data>
+            <key>Smart Criteria</key><data>AQ==</data>
+            <key>Playlist Items</key>
+            <array>
+                <dict><key>Track ID</key><integer>102</integer></dict>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
