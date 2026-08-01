@@ -20,11 +20,22 @@ _SYSTEM_PLAYLIST_KEYS = (
 
 
 def location_to_path(location: str) -> str:
-    """Decode an iTunes ``file://localhost/...`` URL to a Windows path."""
+    """Decode an iTunes ``file://`` URL to a Windows path.
+
+    Handles local and mapped drives (``file://localhost/Z:/...``) as well as
+    the two UNC forms iTunes writes for network shares such as a NAS:
+    ``file://SERVER/share/...`` and ``file://///SERVER/share/...``.
+    """
     if not location:
         return ""
-    path = unquote(urlparse(location).path)
-    if len(path) >= 3 and path[0] == "/" and path[2] == ":":
+    parsed = urlparse(location)
+    host = unquote(parsed.netloc)
+    path = unquote(parsed.path)
+    if host and host.lower() != "localhost":
+        path = "/" + host + path
+    elif path.startswith("///"):
+        path = "/" + path.lstrip("/")
+    elif len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:]
     return path.replace("/", "\\")
 
