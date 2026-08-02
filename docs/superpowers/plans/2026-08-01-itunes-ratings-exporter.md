@@ -41,10 +41,12 @@ tests/
 ### Task 1: Scaffolding, fixture, and track parsing
 
 **Files:**
+
 - Create: `pyproject.toml`, `itunes_ratings_exporter/__init__.py`, `itunes_ratings_exporter/parser.py`
 - Create: `tests/fixtures/library.xml`, `tests/test_parser.py`
 
 **Interfaces:**
+
 - Consumes: nothing (first task).
 - Produces: `parse_track(raw: dict) -> dict` returning the track dict with keys `persistent_id, title, artist, album_artist, album, rating_stars, rating_computed, play_count, last_played, duration_ms, year, track_number, disc_number, genre, compilation, file_path, purchased, kind, extra_ids`; `location_to_path(location: str) -> str`; `parse_library(path) -> dict` with keys `tracks` (list of track dicts) and `playlists` (list; fully implemented in Task 2 — this task returns tracks and may leave playlists as `[]`).
 
@@ -59,7 +61,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "itunes-ratings-exporter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Export ratings, play counts, and playlists from iTunes Music Library.xml to CSV/JSON"
 requires-python = ">=3.9"
 
@@ -374,10 +376,12 @@ git commit -m "feat: parse iTunes library XML into track dicts"
 ### Task 2: Location decoding and playlist parsing tests
 
 **Files:**
+
 - Modify: `tests/test_parser.py` (append tests)
 - Modify: `itunes_ratings_exporter/parser.py` (only if a test exposes a bug)
 
 **Interfaces:**
+
 - Consumes: `parse_library`, `location_to_path` from Task 1.
 - Produces: verified behavior later tasks rely on — playlist dicts `{"name": str, "smart": bool, "track_persistent_ids": list[str]}`, system playlists excluded, non-ASCII paths decoded.
 
@@ -432,9 +436,11 @@ git commit -m "test: cover location decoding and playlist parsing"
 ### Task 3: CSV exporters (tracks.csv, rated.csv)
 
 **Files:**
+
 - Create: `itunes_ratings_exporter/exporters.py`, `tests/test_exporters.py`
 
 **Interfaces:**
+
 - Consumes: track dicts from `parse_library` (Task 1 shape).
 - Produces: `CSV_FIELDS: list[str]`; `manually_rated(tracks: list) -> list`; `write_tracks_csv(tracks: list, path: Path) -> None`; `write_rated_csv(tracks: list, path: Path) -> None`. Cell rules: `None` → `""`, `True`/`False` → `"true"`/`"false"`.
 
@@ -577,10 +583,12 @@ git commit -m "feat: export tracks.csv and manually-rated rated.csv"
 ### Task 4: playlists.csv and library.json exporters
 
 **Files:**
+
 - Modify: `itunes_ratings_exporter/exporters.py` (append functions)
 - Modify: `tests/test_exporters.py` (append tests)
 
 **Interfaces:**
+
 - Consumes: `CSV_FIELDS`, `_cell`, track/playlist dict shapes from Tasks 1–3.
 - Produces: `write_playlists_csv(playlists: list, tracks: list, path) -> None` (columns `playlist, smart, position, track_persistent_id, title, artist`; position 1-based); `write_library_json(tracks: list, playlists: list, source: str, path, exported_at: str | None = None) -> None` (JSON keys `schema_version` = 1, `exported_at`, `source_library`, `tracks`, `playlists`).
 
@@ -711,10 +719,12 @@ git commit -m "feat: export playlists.csv and library.json"
 ### Task 5: CLI, entry points, end-to-end test, README
 
 **Files:**
+
 - Create: `itunes_ratings_exporter/cli.py`, `itunes_ratings_exporter/__main__.py`, `tests/test_cli.py`
 - Modify: `README.md`
 
 **Interfaces:**
+
 - Consumes: `parse_library` (Task 1); `write_tracks_csv`, `write_rated_csv`, `manually_rated` (Task 3); `write_playlists_csv`, `write_library_json` (Task 4).
 - Produces: `main(argv: list[str] | None = None) -> int` (0 success, 1 parse error, 2 library not found); `default_library_path() -> Path`.
 
@@ -854,12 +864,12 @@ Makes your iTunes ratings/plays metadata portable.
 
 Reads `iTunes Music Library.xml` (classic iTunes for Windows) and exports:
 
-| File | Contents |
-| --- | --- |
-| `tracks.csv` | Every track: title, artist, album, rating, play count, duration, file path, IDs |
-| `rated.csv` | Only tracks with a rating you set yourself (computed ratings excluded) |
-| `playlists.csv` | Your playlists, one row per track membership |
-| `library.json` | Everything in one structured, versioned file |
+| File            | Contents                                                                        |
+| --------------- | ------------------------------------------------------------------------------- |
+| `tracks.csv`    | Every track: title, artist, album, rating, play count, duration, file path, IDs |
+| `rated.csv`     | Only tracks with a rating you set yourself (computed ratings excluded)          |
+| `playlists.csv` | Your playlists, one row per track membership                                    |
+| `library.json`  | Everything in one structured, versioned file                                    |
 
 ## Setup
 
@@ -868,9 +878,10 @@ Reads `iTunes Music Library.xml` (classic iTunes for Windows) and exports:
 2. Python 3.9+ is required. No third-party packages.
 
 ## Usage
-
 ```
+
 python -m itunes_ratings_exporter [--library PATH] [--out DIR]
+
 ```
 
 - `--library` — path to `iTunes Music Library.xml`; defaults to
@@ -885,8 +896,10 @@ Spotify-matching importer).
 ## Development
 
 ```
+
 pip install pytest
 python -m pytest
+
 ```
 
 Design docs live under `docs/superpowers/`.
@@ -909,11 +922,13 @@ git commit -m "feat: add CLI entry point, end-to-end tests, README"
 ### Task 6: Network-share (UNC) and mapped-drive path support
 
 **Files:**
+
 - Modify: `itunes_ratings_exporter/parser.py` (rewrite `location_to_path`)
 - Modify: `tests/test_parser.py` (append unit tests)
 - Modify: `README.md` (add a NAS/network-share note)
 
 **Interfaces:**
+
 - Consumes: `location_to_path(location: str) -> str` from Task 1.
 - Produces: same signature, now correct for network shares. Later tasks and
   the downstream Spotify-matching tool rely on `file_path` being a usable
@@ -925,14 +940,14 @@ NAS (e.g. Synology) it silently DROPS the server name — producing
 `\music\song.mp3` instead of `\SYNOLOGY\music\song.mp3`. A silently wrong
 path is worse than a crash.
 
-| Location URL | Required output |
-| --- | --- |
-| `file://localhost/C:/Music/song.mp3` | `C:\Music\song.mp3` |
-| `file://localhost/Z:/Music/song.mp3` | `Z:\Music\song.mp3` |
-| `file:///C:/Music/song.mp3` | `C:\Music\song.mp3` |
-| `file://SYNOLOGY/music/song.mp3` | `\\SYNOLOGY\music\song.mp3` |
-| `file://///SYNOLOGY/music/song.mp3` | `\\SYNOLOGY\music\song.mp3` |
-| `""` | `""` |
+| Location URL                         | Required output             |
+| ------------------------------------ | --------------------------- |
+| `file://localhost/C:/Music/song.mp3` | `C:\Music\song.mp3`         |
+| `file://localhost/Z:/Music/song.mp3` | `Z:\Music\song.mp3`         |
+| `file:///C:/Music/song.mp3`          | `C:\Music\song.mp3`         |
+| `file://SYNOLOGY/music/song.mp3`     | `\\SYNOLOGY\music\song.mp3` |
+| `file://///SYNOLOGY/music/song.mp3`  | `\\SYNOLOGY\music\song.mp3` |
+| `""`                                 | `""`                        |
 
 Do NOT add a NAS track to `tests/fixtures/library.xml` — several existing
 tests assert exactly 4 tracks. Test `location_to_path` directly instead.
@@ -1012,9 +1027,10 @@ asserting `C:\Users\jared\Música\Túnel.mp3`.
 
 Works with libraries hosted on a NAS (Synology, etc.), whether reached
 through a mapped drive letter or a UNC path:
-
 ```
+
 python -m itunes_ratings_exporter --library "Z:\Music\iTunes\iTunes Music Library.xml"
+
 ```
 
 Exported `file_path` values preserve whichever form iTunes recorded —
