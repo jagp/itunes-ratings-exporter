@@ -20,17 +20,32 @@ _SYSTEM_PLAYLIST_KEYS = (
 
 
 def location_to_path(location: str) -> str:
-    """Decode an iTunes ``file://localhost/...`` URL to a Windows path."""
+    """Decode an iTunes ``file://`` URL to a Windows path.
+
+    Handles local and mapped drives (``file://localhost/Z:/...``) as well as
+    the two UNC forms iTunes writes for network shares such as a NAS:
+    ``file://SERVER/share/...`` and ``file://///SERVER/share/...``.
+    """
     if not location:
         return ""
-    path = unquote(urlparse(location).path)
-    if len(path) >= 3 and path[0] == "/" and path[2] == ":":
+    parsed = urlparse(location)
+    host = unquote(parsed.netloc)
+    path = unquote(parsed.path)
+    if host and host.lower() != "localhost":
+        path = "//" + host + path
+    elif path.startswith("///"):
+        path = "//" + path.lstrip("/")
+    elif len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:]
     return path.replace("/", "\\")
 
 
 def parse_track(raw: "dict[str, Any]") -> "dict[str, Any]":
     rating = raw.get("Rating")
+    # A raw Rating of 0 means "no rating set", not "0 stars" -- iTunes' own
+    # UI only offers 1-5 stars, so 0 is the absence of a rating, typically
+    # left behind by scripting or third-party taggers clearing a rating.
+    rating_stars = rating // 20 if isinstance(rating, int) and rating > 0 else None
     last_played = raw.get("Play Date UTC")
     return {
         "persistent_id": raw.get("Persistent ID", ""),
@@ -38,7 +53,7 @@ def parse_track(raw: "dict[str, Any]") -> "dict[str, Any]":
         "artist": raw.get("Artist", ""),
         "album_artist": raw.get("Album Artist", ""),
         "album": raw.get("Album", ""),
-        "rating_stars": rating // 20 if isinstance(rating, int) else None,
+        "rating_stars": rating_stars,
         "rating_computed": bool(raw.get("Rating Computed", False)),
         "play_count": raw.get("Play Count"),
         "last_played": (

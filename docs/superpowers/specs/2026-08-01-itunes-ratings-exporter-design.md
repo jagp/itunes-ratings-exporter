@@ -75,7 +75,7 @@ One record per track in the library:
 | `disc_number` | `Disc Number` | Matching disambiguator |
 | `genre` | `Genre` | Matching disambiguator |
 | `compilation` | `Compilation` | Matching disambiguator |
-| `file_path` | `Location` | Decoded from percent-encoded `file://localhost/` URL to a Windows path; blank for cloud-only tracks |
+| `file_path` | `Location` | Decoded from a percent-encoded `file://` URL to a Windows path — a mapped drive (`file://localhost/Z:/...` → `Z:\...`) or a UNC network share (`file://SERVER/...` / `file://///SERVER/...` → `\\SERVER\...`); blank for cloud-only tracks |
 | `purchased` | `Purchased` | `true` for iTunes Store purchases |
 | `kind` | `Kind` | e.g. "Purchased AAC audio file" — cheap provenance signal |
 
