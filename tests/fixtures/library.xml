@@ -63,6 +63,15 @@
             <key>Persistent ID</key><string>DDDD4444DDDD4444</string>
             <key>Location</key><string>file://localhost/C:/Music/bought.m4a</string>
         </dict>
+        <key>105</key>
+        <dict>
+            <key>Track ID</key><integer>105</integer>
+            <key>Name</key><string>Zeroed</string>
+            <key>Artist</key><string>Nil</string>
+            <key>Total Time</key><integer>100000</integer>
+            <key>Rating</key><integer>0</integer>
+            <key>Persistent ID</key><string>EEEE5555EEEE5555</string>
+        </dict>
     </dict>
     <key>Playlists</key>
     <array>

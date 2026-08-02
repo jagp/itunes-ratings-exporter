@@ -25,7 +25,7 @@ def test_tracks_csv_has_all_tracks_and_fields(tmp_path):
     out = tmp_path / "tracks.csv"
     write_tracks_csv(tracks, out)
     rows = _read_csv(out)
-    assert len(rows) == 4
+    assert len(rows) == 5
     assert list(rows[0].keys()) == CSV_FIELDS
     row = next(r for r in rows if r["persistent_id"] == "AAAA1111AAAA1111")
     assert row["title"] == "Túnel"
@@ -38,21 +38,28 @@ def test_tracks_csv_has_all_tracks_and_fields(tmp_path):
     bought = next(r for r in rows if r["persistent_id"] == "DDDD4444DDDD4444")
     assert bought["purchased"] == "true"
     assert bought["compilation"] == "true"
+    zeroed = next(r for r in rows if r["persistent_id"] == "EEEE5555EEEE5555")
+    assert zeroed["title"] == "Zeroed"
+    assert zeroed["rating_stars"] == ""
 
 
 def test_rated_csv_excludes_computed_and_unrated(tmp_path):
     tracks = parse_library(FIXTURE)["tracks"]
-    assert {t["persistent_id"] for t in manually_rated(tracks)} == {
+    rated_ids = {t["persistent_id"] for t in manually_rated(tracks)}
+    assert rated_ids == {
         "AAAA1111AAAA1111",
         "DDDD4444DDDD4444",
     }
+    assert "EEEE5555EEEE5555" not in rated_ids
     out = tmp_path / "rated.csv"
     write_rated_csv(tracks, out)
     rows = _read_csv(out)
-    assert {r["persistent_id"] for r in rows} == {
+    row_ids = {r["persistent_id"] for r in rows}
+    assert row_ids == {
         "AAAA1111AAAA1111",
         "DDDD4444DDDD4444",
     }
+    assert "EEEE5555EEEE5555" not in row_ids
 
 
 def test_playlists_csv_rows(tmp_path):
@@ -84,7 +91,7 @@ def test_library_json_structure(tmp_path):
     assert data["schema_version"] == 1
     assert data["exported_at"] == "2026-08-01T00:00:00+00:00"
     assert data["source_library"] == "X:\\lib.xml"
-    assert len(data["tracks"]) == 4
+    assert len(data["tracks"]) == 5
     track = next(t for t in data["tracks"] if t["persistent_id"] == "AAAA1111AAAA1111")
     assert track["extra_ids"] == {"Track ID": 101}
     assert len(data["playlists"]) == 2

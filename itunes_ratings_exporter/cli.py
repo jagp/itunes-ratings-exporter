@@ -51,15 +51,20 @@ def main(argv: "list[str] | None" = None) -> int:
 
     tracks, playlists = lib["tracks"], lib["playlists"]
     out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    write_tracks_csv(tracks, out / "tracks.csv")
-    write_rated_csv(tracks, out / "rated.csv")
-    write_playlists_csv(playlists, tracks, out / "playlists.csv")
-    write_library_json(tracks, playlists, str(library), out / "library.json")
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        write_tracks_csv(tracks, out / "tracks.csv")
+        write_rated_csv(tracks, out / "rated.csv")
+        write_playlists_csv(playlists, tracks, out / "playlists.csv")
+        write_library_json(tracks, playlists, str(library), out / "library.json")
+    except OSError as exc:
+        print(f"Could not write to output directory {out}: {exc}", file=sys.stderr)
+        return 3
 
     rated = manually_rated(tracks)
+    played = [t for t in tracks if t["play_count"] is not None]
     print(
-        f"Exported {len(tracks)} tracks ({len(rated)} manually rated), "
-        f"{len(playlists)} playlists -> {out}"
+        f"Exported {len(tracks)} tracks ({len(rated)} manually rated, "
+        f"{len(played)} with plays), {len(playlists)} playlists -> {out}"
     )
     return 0

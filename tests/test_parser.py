@@ -52,6 +52,13 @@ def test_purchased_compilation_flags():
     assert t["rating_stars"] == 4
 
 
+def test_zero_rating_is_treated_as_unrated():
+    t = _track(parse_library(FIXTURE), "EEEE5555EEEE5555")
+    assert t["title"] == "Zeroed"
+    assert t["rating_stars"] is None
+    assert t["rating_computed"] is False
+
+
 def test_location_to_path_mapped_network_drive():
     assert (
         location_to_path("file://localhost/Z:/Music/Aria/T%C3%BAnel.mp3")

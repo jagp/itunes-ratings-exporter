@@ -42,6 +42,10 @@ def location_to_path(location: str) -> str:
 
 def parse_track(raw: "dict[str, Any]") -> "dict[str, Any]":
     rating = raw.get("Rating")
+    # A raw Rating of 0 means "no rating set", not "0 stars" -- iTunes' own
+    # UI only offers 1-5 stars, so 0 is the absence of a rating, typically
+    # left behind by scripting or third-party taggers clearing a rating.
+    rating_stars = rating // 20 if isinstance(rating, int) and rating > 0 else None
     last_played = raw.get("Play Date UTC")
     return {
         "persistent_id": raw.get("Persistent ID", ""),
@@ -49,7 +53,7 @@ def parse_track(raw: "dict[str, Any]") -> "dict[str, Any]":
         "artist": raw.get("Artist", ""),
         "album_artist": raw.get("Album Artist", ""),
         "album": raw.get("Album", ""),
-        "rating_stars": rating // 20 if isinstance(rating, int) else None,
+        "rating_stars": rating_stars,
         "rating_computed": bool(raw.get("Rating Computed", False)),
         "play_count": raw.get("Play Count"),
         "last_played": (

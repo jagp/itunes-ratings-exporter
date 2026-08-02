@@ -930,8 +930,8 @@ path is worse than a crash.
 | `file://localhost/C:/Music/song.mp3` | `C:\Music\song.mp3` |
 | `file://localhost/Z:/Music/song.mp3` | `Z:\Music\song.mp3` |
 | `file:///C:/Music/song.mp3` | `C:\Music\song.mp3` |
-| `file://SYNOLOGY/music/song.mp3` | `\SYNOLOGY\music\song.mp3` |
-| `file://///SYNOLOGY/music/song.mp3` | `\SYNOLOGY\music\song.mp3` |
+| `file://SYNOLOGY/music/song.mp3` | `\\SYNOLOGY\music\song.mp3` |
+| `file://///SYNOLOGY/music/song.mp3` | `\\SYNOLOGY\music\song.mp3` |
 | `""` | `""` |
 
 Do NOT add a NAS track to `tests/fixtures/library.xml` — several existing
@@ -952,14 +952,14 @@ def test_location_to_path_mapped_network_drive():
 def test_location_to_path_unc_host_in_netloc():
     assert (
         location_to_path("file://SYNOLOGY/music/Aria/song.mp3")
-        == "\\SYNOLOGY\music\Aria\song.mp3"
+        == "\\\\SYNOLOGY\\music\\Aria\\song.mp3"
     )
 
 
 def test_location_to_path_unc_leading_slashes():
     assert (
         location_to_path("file://///SYNOLOGY/music/Aria/song.mp3")
-        == "\\SYNOLOGY\music\Aria\song.mp3"
+        == "\\\\SYNOLOGY\\music\\Aria\\song.mp3"
     )
 
 
@@ -1018,7 +1018,7 @@ python -m itunes_ratings_exporter --library "Z:\Music\iTunes\iTunes Music Librar
 ```
 
 Exported `file_path` values preserve whichever form iTunes recorded —
-`Z:\Music\song.mp3` for a mapped drive, `\SERVER\share\song.mp3` for a UNC
+`Z:\Music\song.mp3` for a mapped drive, `\\SERVER\share\song.mp3` for a UNC
 path. Mapped drive letters are per-machine, so a library recorded as `Z:`
 resolves only where that mapping exists.
 ```

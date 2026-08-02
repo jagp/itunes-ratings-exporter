@@ -27,6 +27,10 @@ python -m itunes_ratings_exporter [--library PATH] [--out DIR]
   `%USERPROFILE%\Music\iTunes\iTunes Music Library.xml`.
 - `--out` — output directory (default `./export`).
 
+Exit codes: `0` success, `1` malformed library XML, `2` library file not
+found, `3` output directory could not be written (e.g. read-only, invalid
+path, or full disk).
+
 Ratings are exported as 0–5 stars. `rating_computed` marks ratings iTunes
 derived from the album rating rather than ones you set. `library.json`
 carries a `schema_version` field for downstream tools (for example, a future
@@ -42,7 +46,7 @@ python -m itunes_ratings_exporter --library "Z:\Music\iTunes\iTunes Music Librar
 ```
 
 Exported `file_path` values preserve whichever form iTunes recorded —
-`Z:\Music\song.mp3` for a mapped drive, `\SERVER\share\song.mp3` for a UNC
+`Z:\Music\song.mp3` for a mapped drive, `\\SERVER\share\song.mp3` for a UNC
 path. Mapped drive letters are per-machine, so a library recorded as `Z:`
 resolves only where that mapping exists.
 
