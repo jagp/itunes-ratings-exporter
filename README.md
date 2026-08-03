@@ -31,6 +31,109 @@ Exit codes: `0` success, `1` malformed library XML, `2` library file not
 found, `3` output directory could not be written (e.g. read-only, invalid
 path, or full disk).
 
+## Importing into Spotify
+
+Turn an exported CSV into a Spotify playlist:
+
+```
+python -m itunes_ratings_exporter spotify-import [options]
+```
+
+### One-time setup
+
+1. Create an app at <https://developer.spotify.com/dashboard>.
+2. Add `http://127.0.0.1:8888/callback` to its **Redirect URIs**.
+3. Copy the **Client ID** and set it:
+   ```
+   set SPOTIFY_CLIENT_ID=your-client-id
+   ```
+   (or pass `--client-id`). No client secret is needed — the CLI uses
+   Authorization Code with PKCE, the flow designed for apps that cannot keep
+   a secret.
+
+The first run opens your browser for consent. The resulting tokens are cached
+in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
+
+### Options
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--csv PATH` | `export/rated.csv` | Input CSV |
+| `--name NAME` | `iTunes Ratings <today>` | Playlist name |
+| `--min-stars N` | `4` | Only import tracks rated at least N stars |
+| `--limit N` | all | Import at most N tracks — good for a trial run |
+| `--public` | off | Create a public playlist |
+| `--dry-run` | off | Match and report, but create nothing |
+| `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
+| `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
+| `--restart` | off | Rebuild the work queue from the input CSV |
+| `--quiet` | off | Print totals only, not every track |
+
+A first run worth trying:
+
+```
+python -m itunes_ratings_exporter spotify-import --min-stars 5 --limit 20 --dry-run
+```
+
+### Matching
+
+iTunes and Spotify disagree about metadata constantly — remaster suffixes,
+where featured artists live, live versions. Each track is scored on title
+similarity, artist similarity, and runtime proximity. Matching is deliberately
+conservative: a wrong song in your playlist is silent and may go unnoticed, but
+a dropped song stays in the queue where you can see it. Lower `--min-score`
+to accept more, raise it to accept less.
+
+Every track is logged as it is decided, so a run cut short by a crash or a
+quota still leaves a scrollback record of exactly what was resolved. Pass
+`--quiet` for totals only.
+
+### The queue and the log
+
+A large library takes thousands of searches, and Spotify's rolling quota can
+run out partway. Rather than keeping a report and working out what to redo,
+the import keeps a work list and drains it. Two files sit beside the input CSV:
+
+| File | Contents |
+| --- | --- |
+| `spotify_import_queue.csv` | Tracks **not yet in Spotify** — the work remaining |
+| `spotify_import_log.csv` | Tracks **confirmed in the playlist** — append-only |
+
+A track is in exactly one of them, so `queue + log` is always your whole
+library, and the queue's line count is literally what is left to do. The
+original export is only ever read; the queue is a copy.
+
+That makes every run a resume. There is no flag — you just run the same
+command again:
+
+```
+python -m itunes_ratings_exporter spotify-import --min-stars 4
+```
+
+A track leaves the queue only once Spotify has accepted it, and matches are
+delivered in batches of 100 (the API's maximum per call) as they accumulate.
+So an interruption leaves a real partial playlist, plus a queue holding
+precisely the tracks that did not make it. Nothing is redone and nothing is
+double-added.
+
+Tracks that were searched but not resolved stay queued with their verdict
+recorded — `rejected` (a near miss, shown with the candidate so you can judge
+it) or `not_found`. Re-running retries them, which is what you want after
+lowering `--min-score` or when a miss was just a bad search. Matching results
+are kept, so a re-run spends search quota only on tracks that still need it.
+
+A run creates a playlist the first time and tops up that same playlist on
+later runs, so an import broken across several sessions still ends as one
+playlist.
+
+`--restart` rebuilds the queue from the export, discarding matching progress.
+The log is kept, so tracks already in the playlist are not imported twice.
+
+Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization
+failed, `6` the Spotify API failed, `7` the account's request quota is spent.
+For `6` and `7` the queue holds what is left — wait if asked, then re-run the
+same command.
+
 Ratings are exported as 0–5 stars. `rating_computed` marks ratings iTunes
 derived from the album rating rather than ones you set. `library.json`
 carries a `schema_version` field for downstream tools (for example, a future
