@@ -66,8 +66,7 @@ in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
 | `--dry-run` | off | Match and report, but create nothing |
 | `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
 | `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
-| `--report PATH` | next to the input CSV | Where the report is written |
-| `--resume` | off | Reuse settled results from an existing report |
+| `--restart` | off | Rebuild the work queue from the input CSV |
 | `--quiet` | off | Print totals only, not every track |
 
 A first run worth trying:
@@ -76,47 +75,64 @@ A first run worth trying:
 python -m itunes_ratings_exporter spotify-import --min-stars 5 --limit 20 --dry-run
 ```
 
-### Matching and the report
+### Matching
 
 iTunes and Spotify disagree about metadata constantly — remaster suffixes,
 where featured artists live, live versions. Each track is scored on title
 similarity, artist similarity, and runtime proximity. Matching is deliberately
 conservative: a wrong song in your playlist is silent and may go unnoticed, but
-a dropped song appears in the report where you can see it. Lower `--min-score`
+a dropped song stays in the queue where you can see it. Lower `--min-score`
 to accept more, raise it to accept less.
-
-Every run writes `spotify_import_report.csv` — one row per track with a status
-of `matched`, `rejected` (a near miss, shown with the candidate so you can
-judge it), or `not_found`. The report is written even if the run fails partway,
-so matching work is never lost.
-
-Each run creates a new playlist; it never modifies an existing one.
 
 Every track is logged as it is decided, so a run cut short by a crash or a
 quota still leaves a scrollback record of exactly what was resolved. Pass
 `--quiet` for totals only.
 
-### Resuming an interrupted run
+### The queue and the log
 
 A large library takes thousands of searches, and Spotify's rolling quota can
-run out partway. `--resume` reads the report the previous run left behind and
-searches only what is left:
+run out partway. Rather than keeping a report and working out what to redo,
+the import keeps a work list and drains it. Two files sit beside the input CSV:
+
+| File | Contents |
+| --- | --- |
+| `spotify_import_queue.csv` | Tracks **not yet in Spotify** — the work remaining |
+| `spotify_import_log.csv` | Tracks **confirmed in the playlist** — append-only |
+
+A track is in exactly one of them, so `queue + log` is always your whole
+library, and the queue's line count is literally what is left to do. The
+original export is only ever read; the queue is a copy.
+
+That makes every run a resume. There is no flag — you just run the same
+command again:
 
 ```
-python -m itunes_ratings_exporter spotify-import --min-stars 4 --resume
+python -m itunes_ratings_exporter spotify-import --min-stars 4
 ```
 
-Tracks recorded as `matched` or `rejected` are reused as-is — a reused match
-still goes into the new playlist, it just costs no quota. Tracks recorded as
-`not_found` *are* retried, since a miss can be a bad search rather than a real
-absence, but they go last so that a run which runs out of quota again spends
-it on tracks nobody has tried yet. Rows are matched on `persistent_id`, falling
-back to title and artist for CSVs that lack one.
+A track leaves the queue only once Spotify has accepted it, and matches are
+delivered in batches of 100 (the API's maximum per call) as they accumulate.
+So an interruption leaves a real partial playlist, plus a queue holding
+precisely the tracks that did not make it. Nothing is redone and nothing is
+double-added.
+
+Tracks that were searched but not resolved stay queued with their verdict
+recorded — `rejected` (a near miss, shown with the candidate so you can judge
+it) or `not_found`. Re-running retries them, which is what you want after
+lowering `--min-score` or when a miss was just a bad search. Matching results
+are kept, so a re-run spends search quota only on tracks that still need it.
+
+A run creates a playlist the first time and tops up that same playlist on
+later runs, so an import broken across several sessions still ends as one
+playlist.
+
+`--restart` rebuilds the queue from the export, discarding matching progress.
+The log is kept, so tracks already in the playlist are not imported twice.
 
 Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization
-failed, `6` the Spotify API failed (the report is still written), `7` the
-account's request quota is spent — wait the reported time and re-run with
-`--resume`.
+failed, `6` the Spotify API failed, `7` the account's request quota is spent.
+For `6` and `7` the queue holds what is left — wait if asked, then re-run the
+same command.
 
 Ratings are exported as 0–5 stars. `rating_computed` marks ratings iTunes
 derived from the album rating rather than ones you set. `library.json`

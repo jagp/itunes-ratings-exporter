@@ -110,12 +110,12 @@ def _spotify_import_parser() -> argparse.ArgumentParser:
         default=os.environ.get("SPOTIFY_CLIENT_ID", ""),
         help="Spotify app client ID (default: $SPOTIFY_CLIENT_ID)",
     )
-    ap.add_argument("--report", help="Report CSV path (default: alongside the input CSV)")
     ap.add_argument(
-        "--resume",
+        "--restart",
         action="store_true",
-        help="Reuse matched/rejected results from an existing report and only "
-        "search what is left. Tracks previously not found are retried last.",
+        help="Rebuild the work queue from the input CSV, discarding the "
+        "matching done so far. The log of tracks already in the playlist is "
+        "kept, so they are not imported twice.",
     )
     ap.add_argument(
         "--quiet",
@@ -165,8 +165,10 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
     from .spotify.client import SpotifyApiError, SpotifyClient, SpotifyQuotaError
     from .spotify.importer import (
         ImportInputError,
+        default_log_path,
         default_playlist_name,
-        read_prior_report,
+        default_queue_path,
+        read_queue,
         read_rows,
         run_import,
     )
@@ -183,11 +185,8 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         print(f"No tracks in {args.csv} rated {args.min_stars}+ stars. Nothing to import.")
         return 0
 
-    report = (
-        Path(args.report)
-        if args.report
-        else Path(args.csv).parent / "spotify_import_report.csv"
-    )
+    queue_path = default_queue_path(args.csv)
+    log_path = default_log_path(args.csv)
 
     if client is None:
         # A dry run still needs search access to score candidates; it simply
@@ -201,60 +200,63 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
             print(str(exc), file=sys.stderr)
             return 5
 
-    prior = {}
-    if args.resume:
-        try:
-            prior = read_prior_report(report)
-        except ImportInputError as exc:
-            print(str(exc), file=sys.stderr)
-            return 4
-        if prior:
-            print(f"Resuming from {report} ({len(prior)} tracks already recorded)")
-        else:
-            print(f"No previous report at {report}; starting fresh.")
+    try:
+        outstanding = len(read_queue(queue_path))
+    except ImportInputError as exc:
+        print(str(exc), file=sys.stderr)
+        return 4
+    if args.restart:
+        print(f"Rebuilding the queue from {args.csv}.")
+    elif outstanding:
+        print(f"Continuing: {outstanding} tracks still queued in {queue_path}")
 
     print(f"Matching {len(rows)} tracks against Spotify...")
     try:
         summary = run_import(
             rows,
             client,
-            report,
+            queue_path,
+            log_path,
             name=args.name or default_playlist_name(),
             public=args.public,
             dry_run=args.dry_run,
             min_score=args.min_score,
             progress=lambda msg: print(msg, flush=True),
             on_track=None if args.quiet else _print_track,
-            prior=prior,
+            restart=args.restart,
         )
     except SpotifyQuotaError as exc:
         print(
-            f"{exc}\nMatches found before the quota ran out were written to {report}.",
+            f"{exc}\n{queue_path} holds what is left; tracks already in the "
+            f"playlist have moved to {log_path}.\nRe-run the same command to "
+            f"carry on -- it picks up from the queue.",
             file=sys.stderr,
         )
         return 7
     except SpotifyApiError as exc:
-        print(f"{exc}\nPartial results were written to {report}.", file=sys.stderr)
+        print(f"{exc}\nProgress was saved to {queue_path}.", file=sys.stderr)
         return 6
     except OSError as exc:
-        print(f"Could not write the report to {report}: {exc}", file=sys.stderr)
+        print(f"Could not write to {queue_path}: {exc}", file=sys.stderr)
         return 3
 
-    if summary["reused"]:
-        print(
-            "Reused {reused} settled results; searched {searched}.".format(**summary)
-        )
-    print(
-        "Matched {matched}/{total} tracks ({rejected} near misses, "
-        "{not_found} not found)".format(**summary)
-    )
-    if summary["not_found"]:
-        print(f"Re-run with --resume to retry the {summary['not_found']} not found.")
+    where = summary["playlist_url"] or "your playlist"
     if summary["dry_run"]:
-        print(f"Dry run: no playlist created. See {report}.")
-    elif summary["added"]:
-        print(f"Added {summary['added']} tracks to {summary['playlist_url'] or 'your playlist'}")
-        print(f"Report: {report}")
+        print(f"Dry run: nothing was added. Searched {summary['searched']} tracks.")
+        return 0
+
+    if summary["added"]:
+        print(f"Added {summary['added']} tracks to {where}")
+    print(
+        "The playlist now holds {in_playlist} of {total} tracks; "
+        "{queued} still queued ({rejected} near misses, "
+        "{not_found} not found).".format(**summary)
+    )
+    if summary["queued"]:
+        # The queue is the durable to-do list, so the next step is always the
+        # same command -- no flag, no bookkeeping.
+        print(f"Still to do: {queue_path}")
+        print("Re-run the same command to continue.")
     else:
-        print(f"Nothing matched confidently enough to add. See {report}.")
+        print(f"Queue empty -- the import is complete. Log: {log_path}")
     return 0

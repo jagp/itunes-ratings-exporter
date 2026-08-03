@@ -18,26 +18,34 @@ has yet survived a real one.
   `~/.itunes-ratings-exporter/spotify-token.json`.
 - Conservative fuzzy matching on title, artist, and runtime. A wrong song in a
   playlist is silent and may go unnoticed for months, while a dropped song lands
-  in the report where it can be seen and fixed — so matching requires title and
+  in the queue where it can be seen and retried — so matching requires title and
   artist to be independently plausible, and treats a 15s-plus runtime gap as
   proof of a different recording regardless of how well the metadata agrees.
   Tunable with `--min-score`.
-- `spotify_import_report.csv` — one row per track, status `matched`, `rejected`
-  (with the near miss shown), or `not_found`. Written even when a run fails
-  partway, so matching work is never lost.
-- `--resume` **[untested]** — reuses `matched` and `rejected` results from a previous report
-  and searches only what is left. A reused match still goes into the playlist,
-  it just costs no quota. `not_found` tracks *are* retried, since a miss can be
-  a bad search rather than a real absence, but they run last so a second
-  interruption falls on tracks nobody has tried yet. Rows are keyed on
-  `persistent_id`, falling back to title and artist.
+- A queue and a log rather than a report **[untested]**.
+  `spotify_import_queue.csv` holds the tracks not yet in Spotify;
+  `spotify_import_log.csv` holds the ones confirmed in the playlist. A track is
+  in exactly one, so `queue + log` is always the whole library and the queue's
+  length is the work remaining. The export itself is only read — the queue is a
+  copy of it.
+- Every run is therefore a resume, with no flag to remember: re-running the
+  same command drains whatever is left. Tracks leave the queue only once
+  Spotify has accepted them, and matches are delivered in batches of 100 (the
+  API maximum) as they accumulate, so an interruption leaves a real partial
+  playlist rather than nothing. Later runs top up the same playlist instead of
+  starting another.
+- Tracks searched but unresolved stay queued with their verdict — `rejected`
+  (near miss shown) or `not_found` — so a re-run retries them after a lowered
+  `--min-score`, while already-matched tracks cost no further search quota.
+- `--restart` **[untested]** rebuilds the queue from the export, keeping the
+  log so nothing is imported twice.
 - Per-track progress logging **[untested]**, so a run cut short by a crash or a
   spent quota still leaves a scrollback record of exactly what was resolved.
   `--quiet` restores totals-only output.
-- `--dry-run`, `--limit`, `--public`, `--name`, `--report`, `--client-id`.
+- `--dry-run`, `--limit`, `--public`, `--name`, `--quiet`, `--client-id`.
 - Exit codes `4` (input CSV missing or malformed), `5` (authorization failed),
   `6` (Spotify API failure), `7` **[untested]** (request quota spent — wait the
-  reported time and re-run with `--resume`).
+  reported time and re-run the same command; the queue holds what is left).
 
 ### Fixed
 
