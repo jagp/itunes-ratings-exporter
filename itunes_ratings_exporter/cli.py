@@ -111,7 +111,48 @@ def _spotify_import_parser() -> argparse.ArgumentParser:
         help="Spotify app client ID (default: $SPOTIFY_CLIENT_ID)",
     )
     ap.add_argument("--report", help="Report CSV path (default: alongside the input CSV)")
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse matched/rejected results from an existing report and only "
+        "search what is left. Tracks previously not found are retried last.",
+    )
+    ap.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Only print progress totals, not every track",
+    )
     return ap
+
+
+_STATUS_LABEL = {"matched": "match ", "rejected": "REJECT", "not_found": "MISS  "}
+
+
+def _print_track(count: int, total: int, result: "dict[str, str]") -> None:
+    """Log one track as it is decided.
+
+    Printed for every track, not just every 25th, so that a run cut short by
+    a quota or a crash still leaves a scrollback record of exactly which
+    tracks were resolved and which were not.
+    """
+    status = result.get("status", "")
+    line = "[{:>4}/{}] {} {:<7} {} -- {}".format(
+        count,
+        total,
+        _STATUS_LABEL.get(status, status),
+        result.get("score", ""),
+        result.get("title", ""),
+        result.get("artist", ""),
+    )
+    if status == "matched":
+        line += "  ->  {} -- {}".format(
+            result.get("spotify_title", ""), result.get("spotify_artist", "")
+        )
+    elif status == "rejected":
+        line += "  (near miss: {} -- {})".format(
+            result.get("spotify_title", ""), result.get("spotify_artist", "")
+        )
+    print(line, flush=True)
 
 
 def spotify_import_main(argv: "list[str]", client=None) -> int:
@@ -125,6 +166,7 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
     from .spotify.importer import (
         ImportInputError,
         default_playlist_name,
+        read_prior_report,
         read_rows,
         run_import,
     )
@@ -159,6 +201,18 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
             print(str(exc), file=sys.stderr)
             return 5
 
+    prior = {}
+    if args.resume:
+        try:
+            prior = read_prior_report(report)
+        except ImportInputError as exc:
+            print(str(exc), file=sys.stderr)
+            return 4
+        if prior:
+            print(f"Resuming from {report} ({len(prior)} tracks already recorded)")
+        else:
+            print(f"No previous report at {report}; starting fresh.")
+
     print(f"Matching {len(rows)} tracks against Spotify...")
     try:
         summary = run_import(
@@ -170,6 +224,8 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
             dry_run=args.dry_run,
             min_score=args.min_score,
             progress=lambda msg: print(msg, flush=True),
+            on_track=None if args.quiet else _print_track,
+            prior=prior,
         )
     except SpotifyQuotaError as exc:
         print(
@@ -184,10 +240,16 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         print(f"Could not write the report to {report}: {exc}", file=sys.stderr)
         return 3
 
+    if summary["reused"]:
+        print(
+            "Reused {reused} settled results; searched {searched}.".format(**summary)
+        )
     print(
         "Matched {matched}/{total} tracks ({rejected} near misses, "
         "{not_found} not found)".format(**summary)
     )
+    if summary["not_found"]:
+        print(f"Re-run with --resume to retry the {summary['not_found']} not found.")
     if summary["dry_run"]:
         print(f"Dry run: no playlist created. See {report}.")
     elif summary["added"]:

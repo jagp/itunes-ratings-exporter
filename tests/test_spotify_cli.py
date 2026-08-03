@@ -94,6 +94,90 @@ def test_nothing_above_the_star_threshold_is_not_an_error(tmp_path, capsys):
     assert client.created == []
 
 
+def test_every_track_is_logged_as_it_is_decided(tmp_path, capsys):
+    # If a run dies partway, this scrollback is the only record of which
+    # tracks were resolved -- so it names each one, not every twenty-fifth.
+    csv_path = write_csv(tmp_path)
+    catalogue = full_catalogue()
+    del catalogue["Idioteque"]
+    spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0"], client=FakeClient(catalogue)
+    )
+    out = capsys.readouterr().out
+    assert "[   1/3] match" in out
+    assert "Karma Police -- Radiohead" in out
+    assert "->  Karma Police -- Radiohead" in out
+    assert "[   3/3] MISS" in out
+    assert "Idioteque" in out
+
+
+def test_quiet_suppresses_the_per_track_log_but_not_the_totals(tmp_path, capsys):
+    csv_path = write_csv(tmp_path)
+    spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0", "--quiet"],
+        client=FakeClient(full_catalogue()),
+    )
+    out = capsys.readouterr().out
+    assert "[   1/3]" not in out
+    assert "Matched 3/3" in out
+
+
+def test_resume_skips_work_the_previous_report_already_settled(tmp_path, capsys):
+    csv_path = write_csv(tmp_path)
+    first = FakeClient(full_catalogue())
+    spotify_import_main(["--csv", str(csv_path), "--min-stars", "0"], client=first)
+
+    second = FakeClient(full_catalogue())
+    code = spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0", "--resume"], client=second
+    )
+    assert code == 0
+    # Everything settled the first time, so the second run searches nothing
+    # and still rebuilds the full playlist from the report.
+    assert second.queries == []
+    assert second.added == first.added
+    out = capsys.readouterr().out
+    assert "Resuming from" in out
+    assert "Reused 3 settled results; searched 0." in out
+
+
+def test_resume_without_a_previous_report_just_starts_fresh(tmp_path, capsys):
+    csv_path = write_csv(tmp_path)
+    client = FakeClient(full_catalogue())
+    code = spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0", "--resume"], client=client
+    )
+    assert code == 0
+    assert "starting fresh" in capsys.readouterr().out
+    assert client.added == ["spotify:track:kp", "spotify:track:cr", "spotify:track:id"]
+
+
+def test_a_run_with_misses_suggests_resuming(tmp_path, capsys):
+    csv_path = write_csv(tmp_path)
+    catalogue = full_catalogue()
+    del catalogue["Idioteque"]
+    spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0"], client=FakeClient(catalogue)
+    )
+    assert "--resume to retry the 1 not found" in capsys.readouterr().out
+
+
+def test_a_spent_quota_exits_seven_and_says_when_to_come_back(tmp_path, capsys):
+    from itunes_ratings_exporter.spotify.client import SpotifyQuotaError
+
+    class QuotaClient(FakeClient):
+        def search_tracks(self, query, limit=5):
+            raise SpotifyQuotaError(10148.0, "request quota exhausted; come back in 2.8 hours.")
+
+    csv_path = write_csv(tmp_path)
+    # Exit 7, distinct from 6, so a wrapper can tell "wait and retry" apart
+    # from "this run is broken".
+    assert spotify_import_main(["--csv", str(csv_path)], client=QuotaClient()) == 7
+    err = capsys.readouterr().err
+    assert "2.8 hours" in err
+    assert "before the quota ran out were written" in err
+
+
 def test_main_routes_the_subcommand(tmp_path, capsys, monkeypatch):
     monkeypatch.delenv("SPOTIFY_CLIENT_ID", raising=False)
     csv_path = write_csv(tmp_path)

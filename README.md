@@ -67,6 +67,8 @@ in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
 | `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
 | `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
 | `--report PATH` | next to the input CSV | Where the report is written |
+| `--resume` | off | Reuse settled results from an existing report |
+| `--quiet` | off | Print totals only, not every track |
 
 A first run worth trying:
 
@@ -90,8 +92,31 @@ so matching work is never lost.
 
 Each run creates a new playlist; it never modifies an existing one.
 
+Every track is logged as it is decided, so a run cut short by a crash or a
+quota still leaves a scrollback record of exactly what was resolved. Pass
+`--quiet` for totals only.
+
+### Resuming an interrupted run
+
+A large library takes thousands of searches, and Spotify's rolling quota can
+run out partway. `--resume` reads the report the previous run left behind and
+searches only what is left:
+
+```
+python -m itunes_ratings_exporter spotify-import --min-stars 4 --resume
+```
+
+Tracks recorded as `matched` or `rejected` are reused as-is — a reused match
+still goes into the new playlist, it just costs no quota. Tracks recorded as
+`not_found` *are* retried, since a miss can be a bad search rather than a real
+absence, but they go last so that a run which runs out of quota again spends
+it on tracks nobody has tried yet. Rows are matched on `persistent_id`, falling
+back to title and artist for CSVs that lack one.
+
 Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization
-failed, `6` the Spotify API failed (the report is still written).
+failed, `6` the Spotify API failed (the report is still written), `7` the
+account's request quota is spent — wait the reported time and re-run with
+`--resume`.
 
 Ratings are exported as 0–5 stars. `rating_computed` marks ratings iTunes
 derived from the album rating rather than ones you set. `library.json`

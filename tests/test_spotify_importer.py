@@ -6,8 +6,11 @@ from itunes_ratings_exporter.spotify.client import SpotifyApiError
 from itunes_ratings_exporter.spotify.importer import (
     ImportInputError,
     default_playlist_name,
+    read_prior_report,
     read_rows,
+    row_key,
     run_import,
+    write_report,
 )
 
 HEADER = "persistent_id,title,artist,album,rating_stars,duration_ms\n"
@@ -39,8 +42,10 @@ class FakeClient:
         self.fail_on_add = fail_on_add
         self.created = []
         self.added = []
+        self.queries = []
 
     def search_tracks(self, query, limit=5):
+        self.queries.append(query)
         for title, result in self.catalogue.items():
             if title.lower() in query.lower():
                 return [result]
@@ -176,6 +181,145 @@ def test_public_flag_reaches_the_api(tmp_path):
     client = FakeClient(full_catalogue())
     run_import(rows, client, tmp_path / "report.csv", public=True)
     assert client.created[0]["public"] is True
+
+
+def prior_report(tmp_path, entries):
+    """Write a report the way a previous run would, then load it for resume."""
+    path = tmp_path / "prior.csv"
+    write_report(path, entries)
+    return read_prior_report(path)
+
+
+def settled(persistent_id, title, status, uri=""):
+    return {
+        "persistent_id": persistent_id,
+        "title": title,
+        "artist": "Radiohead",
+        "status": status,
+        "score": "0.900",
+        "spotify_uri": uri,
+    }
+
+
+def search_order(client, titles):
+    """The order in which each title was first searched for."""
+    seen = []
+    for query in client.queries:
+        for title in titles:
+            if title in query and title not in seen:
+                seen.append(title)
+    return seen
+
+
+def test_row_key_prefers_the_persistent_id():
+    # Two tracks can share a title and artist; the persistent ID cannot.
+    left = {"persistent_id": "AAA", "title": "Creep", "artist": "Radiohead"}
+    right = {"persistent_id": "BBB", "title": "Creep", "artist": "Radiohead"}
+    assert row_key(left) != row_key(right)
+
+
+def test_row_key_falls_back_to_title_and_artist_case_insensitively():
+    # Hand-made CSVs predate persistent_id, so the fallback has to tolerate
+    # the casing and padding a spreadsheet round-trip introduces.
+    assert row_key({"title": "creep", "artist": "radiohead"}) == row_key(
+        {"title": " Creep ", "artist": "Radiohead"}
+    )
+
+
+def test_read_prior_report_of_a_missing_file_is_empty(tmp_path):
+    # A first --resume run has nothing to resume from; that is not an error.
+    assert read_prior_report(tmp_path / "absent.csv") == {}
+
+
+def test_read_prior_report_keys_rows_for_lookup(tmp_path):
+    prior = prior_report(tmp_path, [settled("1", "Karma Police", "matched", "spotify:track:kp")])
+    assert prior["id:1"]["spotify_uri"] == "spotify:track:kp"
+
+
+def test_resume_reuses_settled_results_without_searching_again(tmp_path):
+    rows = read_rows(write_csv(tmp_path), min_stars=0)
+    prior = prior_report(
+        tmp_path,
+        [
+            settled("1", "Karma Police", "matched", "spotify:track:kp"),
+            settled("2", "Creep", "rejected"),
+        ],
+    )
+    client = FakeClient(full_catalogue())
+    summary = run_import(rows, client, tmp_path / "report.csv", prior=prior)
+
+    assert (summary["reused"], summary["searched"]) == (2, 1)
+    assert search_order(client, ["Karma Police", "Creep", "Idioteque"]) == ["Idioteque"]
+    # A reused match still belongs in the playlist -- skipping the search must
+    # not also skip the add.
+    assert summary["matched"] == 2
+    assert client.added == ["spotify:track:kp", "spotify:track:id"]
+
+
+def test_resume_retries_not_found_tracks_after_everything_else(tmp_path):
+    # A miss may just be a bad search, but it is the least likely row to pay
+    # off. Unattempted tracks go first so a run cut short spends its quota on
+    # work nobody has tried yet.
+    rows = read_rows(write_csv(tmp_path), min_stars=0)
+    prior = prior_report(tmp_path, [settled("1", "Karma Police", "not_found")])
+    client = FakeClient(full_catalogue())
+    summary = run_import(rows, client, tmp_path / "report.csv", prior=prior)
+
+    assert summary["reused"] == 0
+    assert search_order(client, ["Karma Police", "Creep", "Idioteque"]) == [
+        "Creep",
+        "Idioteque",
+        "Karma Police",
+    ]
+
+
+def test_resume_keeps_the_report_in_the_input_order(tmp_path):
+    # Work happens out of order once misses are deferred; the report must not
+    # inherit that shuffle.
+    rows = read_rows(write_csv(tmp_path), min_stars=0)
+    prior = prior_report(tmp_path, [settled("1", "Karma Police", "not_found")])
+    run_import(rows, FakeClient(full_catalogue()), tmp_path / "report.csv", prior=prior)
+    titles = [r["title"] for r in read_report(tmp_path / "report.csv")]
+    assert titles == ["Karma Police", "Creep", "Idioteque"]
+
+
+def test_resume_records_the_persistent_id_so_the_next_run_can_key_on_it(tmp_path):
+    rows = read_rows(write_csv(tmp_path), min_stars=0)
+    run_import(rows, FakeClient(full_catalogue()), tmp_path / "report.csv")
+    prior = read_prior_report(tmp_path / "report.csv")
+    assert set(prior) == {"id:1", "id:2", "id:3"}
+
+
+def test_on_track_sees_every_track_as_it_is_decided(tmp_path):
+    # The per-track log is the only record left behind when a run dies mid-way,
+    # so it fires for each track rather than at an interval.
+    rows = read_rows(write_csv(tmp_path), min_stars=0)
+    seen = []
+    run_import(
+        rows,
+        FakeClient(full_catalogue()),
+        tmp_path / "report.csv",
+        on_track=lambda count, total, result: seen.append((count, total, result["title"])),
+    )
+    assert seen == [
+        (1, 3, "Karma Police"),
+        (2, 3, "Creep"),
+        (3, 3, "Idioteque"),
+    ]
+
+
+def test_on_track_counts_against_the_work_actually_done(tmp_path):
+    rows = read_rows(write_csv(tmp_path), min_stars=0)
+    prior = prior_report(tmp_path, [settled("1", "Karma Police", "matched", "spotify:track:kp")])
+    seen = []
+    run_import(
+        rows,
+        FakeClient(full_catalogue()),
+        tmp_path / "report.csv",
+        prior=prior,
+        on_track=lambda count, total, result: seen.append((count, total)),
+    )
+    assert seen == [(1, 2), (2, 2)]
 
 
 def test_default_playlist_name_carries_the_date():
