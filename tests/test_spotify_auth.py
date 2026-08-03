@@ -45,7 +45,7 @@ def test_authorize_url_carries_pkce_and_scopes():
     assert params["code_challenge"] == [auth.code_challenge("verifier")]
     assert params["state"] == ["state123"]
     assert params["redirect_uri"] == [auth.REDIRECT_URI]
-    assert "user-library-modify" in params["scope"][0]
+    assert "playlist-modify-private" in params["scope"][0]
     # The verifier itself must never travel in the authorize request.
     assert "verifier" not in url
 
@@ -96,6 +96,29 @@ def test_unexpired_cached_token_is_reused_without_any_request(tmp_path):
     assert transport.calls == []
 
 
+def test_a_scope_change_discards_the_cache_and_forces_re_consent(tmp_path, monkeypatch):
+    path = tmp_path / "token.json"
+    auth.save_tokens(
+        path,
+        {
+            "access_token": "old",
+            "refresh_token": "old-refresh",
+            "expires_at": 5000,
+            "scope": "some-other-scope",
+        },
+    )
+    transport = token_transport(
+        [(200, {"access_token": "new", "refresh_token": "new-refresh", "expires_in": 3600})]
+    )
+    monkeypatch.setattr(auth, "wait_for_callback", lambda state, **kw: "the-code")
+    token = auth.get_access_token(
+        "cid", path, transport, open_browser=False, now=lambda: 1000, announce=lambda m: None
+    )
+    assert token == "new"
+    # Fresh consent, not a refresh of the differently-scoped grant.
+    assert transport.calls[0]["grant_type"] == ["authorization_code"]
+
+
 def test_expired_token_is_refreshed_and_the_refresh_token_is_preserved(tmp_path):
     path = tmp_path / "token.json"
     auth.save_tokens(
@@ -107,30 +130,6 @@ def test_expired_token_is_refreshed_and_the_refresh_token_is_preserved(tmp_path)
     assert auth.get_access_token("cid", path, transport, now=lambda: 1000) == "fresh"
     assert transport.calls[0]["grant_type"] == ["refresh_token"]
     assert auth.load_tokens(path)["refresh_token"] == "r"
-
-
-def test_a_scope_change_discards_the_cache_and_forces_re_consent(tmp_path, monkeypatch):
-    path = tmp_path / "token.json"
-    # Cached under an old, narrower (or just different) grant.
-    auth.save_tokens(
-        path,
-        {
-            "access_token": "old",
-            "refresh_token": "old-refresh",
-            "expires_at": 5000,
-            "scope": "playlist-modify-private playlist-modify-public",
-        },
-    )
-    transport = token_transport(
-        [(200, {"access_token": "new", "refresh_token": "new-refresh", "expires_in": 3600})]
-    )
-    monkeypatch.setattr(auth, "wait_for_callback", lambda state, **kw: "the-code")
-    token = auth.get_access_token(
-        "cid", path, transport, open_browser=False, now=lambda: 1000, announce=lambda m: None
-    )
-    assert token == "new"
-    # A fresh consent was performed rather than refreshing the stale grant.
-    assert transport.calls[0]["grant_type"] == ["authorization_code"]
 
 
 def test_missing_client_id_explains_the_setup(tmp_path):

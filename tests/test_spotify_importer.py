@@ -3,7 +3,12 @@ import csv
 import pytest
 
 from itunes_ratings_exporter.spotify.client import SpotifyApiError
-from itunes_ratings_exporter.spotify.importer import ImportInputError, read_rows, run_import
+from itunes_ratings_exporter.spotify.importer import (
+    ImportInputError,
+    default_playlist_name,
+    read_rows,
+    run_import,
+)
 
 HEADER = "persistent_id,title,artist,album,rating_stars,duration_ms\n"
 ROWS = (
@@ -29,10 +34,11 @@ def spotify_track(name, artist, duration_ms, uri):
 
 
 class FakeClient:
-    def __init__(self, catalogue=None, fail_on_save=False):
+    def __init__(self, catalogue=None, fail_on_add=False):
         self.catalogue = catalogue or {}
-        self.fail_on_save = fail_on_save
-        self.saved = []
+        self.fail_on_add = fail_on_add
+        self.created = []
+        self.added = []
 
     def search_tracks(self, query, limit=5):
         for title, result in self.catalogue.items():
@@ -43,11 +49,15 @@ class FakeClient:
     def current_user(self):
         return {"id": "user1"}
 
-    def save_tracks(self, track_ids):
-        if self.fail_on_save:
+    def create_playlist(self, name, public=False, description=""):
+        self.created.append({"name": name, "public": public})
+        return {"id": "pl1", "external_urls": {"spotify": "https://open.spotify.com/pl1"}}
+
+    def add_tracks(self, playlist_id, uris):
+        if self.fail_on_add:
             raise SpotifyApiError(502, "upstream exploded")
-        self.saved.extend(track_ids)
-        return len(track_ids)
+        self.added.extend(uris)
+        return len(uris)
 
 
 def full_catalogue():
@@ -102,13 +112,15 @@ def test_unrated_rows_survive_when_no_filter_is_applied(tmp_path):
     assert len(read_rows(path, min_stars=0)) == 1
 
 
-def test_run_import_saves_every_match_to_liked_songs(tmp_path):
+def test_run_import_creates_a_playlist_and_adds_every_match(tmp_path):
     rows = read_rows(write_csv(tmp_path), min_stars=0)
     client = FakeClient(full_catalogue())
-    summary = run_import(rows, client, tmp_path / "report.csv")
+    summary = run_import(rows, client, tmp_path / "report.csv", name="My Playlist")
     assert summary["matched"] == 3
     assert summary["added"] == 3
-    assert client.saved == ["kp", "cr", "id"]
+    assert summary["playlist_url"] == "https://open.spotify.com/pl1"
+    assert client.created == [{"name": "My Playlist", "public": False}]
+    assert client.added == ["spotify:track:kp", "spotify:track:cr", "spotify:track:id"]
 
 
 def test_run_import_reports_every_status(tmp_path):
@@ -137,23 +149,36 @@ def test_dry_run_matches_but_touches_nothing(tmp_path):
     summary = run_import(rows, client, tmp_path / "report.csv", dry_run=True)
     assert summary["matched"] == 3
     assert summary["added"] == 0
-    assert client.saved == []
+    assert client.created == [] and client.added == []
     assert len(read_report(tmp_path / "report.csv")) == 3
 
 
-def test_nothing_is_saved_when_nothing_matches(tmp_path):
+def test_no_playlist_is_created_when_nothing_matches(tmp_path):
     rows = read_rows(write_csv(tmp_path), min_stars=0)
     client = FakeClient({})
     summary = run_import(rows, client, tmp_path / "report.csv")
     assert summary["matched"] == 0
-    assert client.saved == []
+    assert client.created == []
 
 
 def test_report_survives_an_api_failure_partway_through(tmp_path):
-    # Matching is the slow part of a run; a failure while saving tracks must
+    # Matching is the slow part of a run; a failure while adding tracks must
     # not throw away the work already done.
     rows = read_rows(write_csv(tmp_path), min_stars=0)
-    client = FakeClient(full_catalogue(), fail_on_save=True)
+    client = FakeClient(full_catalogue(), fail_on_add=True)
     with pytest.raises(SpotifyApiError):
         run_import(rows, client, tmp_path / "report.csv")
     assert len(read_report(tmp_path / "report.csv")) == 3
+
+
+def test_public_flag_reaches_the_api(tmp_path):
+    rows = read_rows(write_csv(tmp_path), min_stars=5)
+    client = FakeClient(full_catalogue())
+    run_import(rows, client, tmp_path / "report.csv", public=True)
+    assert client.created[0]["public"] is True
+
+
+def test_default_playlist_name_carries_the_date():
+    from datetime import date
+
+    assert default_playlist_name(date(2026, 8, 2)) == "iTunes Ratings 2026-08-02"

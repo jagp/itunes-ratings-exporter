@@ -23,7 +23,7 @@ from typing import Any, Callable, Optional
 AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 REDIRECT_URI = "http://127.0.0.1:8888/callback"
-SCOPES = "user-library-modify"
+SCOPES = "playlist-modify-private playlist-modify-public"
 
 # Spotify no longer accepts "localhost" as a redirect host; the literal
 # loopback IP is required, and the port must match the registered URI.
@@ -231,8 +231,9 @@ def get_access_token(
 
     if cached and cached.get("scope") != SCOPES:
         # Scopes changed since this cache was written (or it predates scope
-        # tracking). Refreshing would silently hand back a token that can't
-        # do what was just requested, so treat it as if nothing were cached.
+        # tracking). Refreshing would hand back a token that cannot do what
+        # was just asked, and Spotify reports that as a bare 403, so force a
+        # fresh consent instead.
         cached = {}
 
     if cached.get("access_token") and cached.get("expires_at", 0) > now() + _EXPIRY_MARGIN_SECONDS:

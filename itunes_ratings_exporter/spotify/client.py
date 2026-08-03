@@ -15,8 +15,12 @@ from typing import Any, Callable, Optional
 
 API_BASE = "https://api.spotify.com/v1"
 
-# Spotify accepts at most 50 track IDs per Save Tracks call.
-SAVE_TRACKS_BATCH = 50
+# Spotify accepts at most 100 track URIs per add-to-playlist call.
+ADD_TRACKS_BATCH = 100
+
+# Search used to allow 50 results per query; the February 2026 API caps it
+# at 10 and rejects anything larger.
+MAX_SEARCH_LIMIT = 10
 
 _MAX_RATE_LIMIT_RETRIES = 5
 _MAX_SERVER_ERROR_RETRIES = 3
@@ -85,7 +89,9 @@ class SpotifyClient:
         """Search the track catalogue, memoizing repeats within this run."""
         if query in self._search_cache:
             return self._search_cache[query]
-        params = urllib.parse.urlencode({"q": query, "type": "track", "limit": limit})
+        params = urllib.parse.urlencode(
+            {"q": query, "type": "track", "limit": min(limit, MAX_SEARCH_LIMIT)}
+        )
         data = self._request("GET", "{}/search?{}".format(API_BASE, params))
         items = data.get("tracks", {}).get("items", [])
         self._search_cache[query] = items
@@ -94,12 +100,35 @@ class SpotifyClient:
     def current_user(self) -> "dict[str, Any]":
         return self._request("GET", API_BASE + "/me")
 
-    def save_tracks(self, track_ids: "list[str]") -> int:
-        """Add tracks to the user's Liked Songs, batched at the API limit."""
+    def create_playlist(
+        self, name: str, public: bool = False, description: str = ""
+    ) -> "dict[str, Any]":
+        """Create a playlist for the authenticated user.
+
+        The February 2026 API retired ``POST /users/{id}/playlists`` in favour
+        of ``POST /me/playlists``; the old path answers 403 rather than 404,
+        which makes calling it look like a permissions problem.
+        """
+        return self._request(
+            "POST",
+            API_BASE + "/me/playlists",
+            {"name": name, "public": public, "description": description},
+        )
+
+    def add_tracks(self, playlist_id: str, uris: "list[str]") -> int:
+        """Add URIs in API-sized batches. Returns how many were sent.
+
+        ``/playlists/{id}/tracks`` became ``/playlists/{id}/items`` in the
+        February 2026 API, and the old path now answers 403.
+        """
         added = 0
-        for start in range(0, len(track_ids), SAVE_TRACKS_BATCH):
-            batch = track_ids[start : start + SAVE_TRACKS_BATCH]
-            self._request("PUT", API_BASE + "/me/tracks", {"ids": batch})
+        for start in range(0, len(uris), ADD_TRACKS_BATCH):
+            batch = uris[start : start + ADD_TRACKS_BATCH]
+            self._request(
+                "POST",
+                "{}/playlists/{}/items".format(API_BASE, urllib.parse.quote(playlist_id)),
+                {"uris": batch},
+            )
             added += len(batch)
         return added
 

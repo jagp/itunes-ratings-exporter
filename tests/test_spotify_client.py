@@ -2,8 +2,11 @@ import json
 
 import pytest
 
+import urllib.parse
+
 from itunes_ratings_exporter.spotify.client import (
-    SAVE_TRACKS_BATCH,
+    ADD_TRACKS_BATCH,
+    MAX_SEARCH_LIMIT,
     SpotifyApiError,
     SpotifyClient,
 )
@@ -78,25 +81,44 @@ def test_persistent_failure_raises_with_the_api_message():
     assert "Insufficient scope" in str(exc.value)
 
 
-def test_save_tracks_puts_ids_to_the_library():
-    client, transport = client_with([ok({})])
-    client.save_tracks(["id1", "id2"])
+def test_create_playlist_posts_to_the_me_endpoint():
+    client, transport = client_with([ok({"id": "pl1"})])
+    client.create_playlist("My Ratings", public=False, description="d")
     request = transport.requests[0]
-    assert request.method == "PUT"
-    assert request.full_url == "https://api.spotify.com/v1/me/tracks"
-    assert json.loads(request.data) == {"ids": ["id1", "id2"]}
+    assert request.method == "POST"
+    # POST /users/{id}/playlists was retired in February 2026 and now 403s.
+    assert request.full_url == "https://api.spotify.com/v1/me/playlists"
+    assert json.loads(request.data) == {
+        "name": "My Ratings",
+        "public": False,
+        "description": "d",
+    }
 
 
-def test_save_tracks_splits_into_api_sized_batches():
-    ids = ["id{}".format(i) for i in range(SAVE_TRACKS_BATCH + 5)]
+def test_add_tracks_posts_to_the_items_endpoint():
+    client, transport = client_with([ok({})])
+    client.add_tracks("pl1", ["spotify:track:a"])
+    # /playlists/{id}/tracks was renamed to /items and the old path now 403s.
+    assert transport.requests[0].full_url == "https://api.spotify.com/v1/playlists/pl1/items"
+
+
+def test_add_tracks_splits_into_api_sized_batches():
+    uris = ["spotify:track:{}".format(i) for i in range(ADD_TRACKS_BATCH + 5)]
     client, transport = client_with([ok({}), ok({})])
-    assert client.save_tracks(ids) == len(ids)
+    assert client.add_tracks("pl1", uris) == len(uris)
     assert len(transport.requests) == 2
-    assert len(json.loads(transport.requests[0].data)["ids"]) == SAVE_TRACKS_BATCH
-    assert len(json.loads(transport.requests[1].data)["ids"]) == 5
+    assert len(json.loads(transport.requests[0].data)["uris"]) == ADD_TRACKS_BATCH
+    assert len(json.loads(transport.requests[1].data)["uris"]) == 5
 
 
-def test_save_tracks_with_nothing_makes_no_requests():
+def test_search_limit_is_clamped_to_the_api_maximum():
+    client, transport = client_with([ok({"tracks": {"items": []}})])
+    client.search_tracks("q", limit=50)
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(transport.requests[0].full_url).query)
+    assert query["limit"] == [str(MAX_SEARCH_LIMIT)]
+
+
+def test_add_tracks_with_nothing_makes_no_requests():
     client, transport = client_with([])
-    assert client.save_tracks([]) == 0
+    assert client.add_tracks("pl1", []) == 0
     assert transport.requests == []

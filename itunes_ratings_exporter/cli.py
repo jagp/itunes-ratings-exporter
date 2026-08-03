@@ -91,11 +91,13 @@ def _spotify_import_parser() -> argparse.ArgumentParser:
 
     ap = argparse.ArgumentParser(
         prog="itunes-ratings-exporter " + SPOTIFY_IMPORT,
-        description="Save an exported ratings CSV to Spotify Liked Songs.",
+        description="Create a Spotify playlist from an exported ratings CSV.",
     )
     ap.add_argument("--csv", default=str(Path("export") / "rated.csv"), help="Input CSV")
+    ap.add_argument("--name", help="Playlist name (default: iTunes Ratings <today>)")
     ap.add_argument("--min-stars", type=int, default=4, help="Minimum star rating (default: 4)")
     ap.add_argument("--limit", type=int, help="Import at most this many tracks")
+    ap.add_argument("--public", action="store_true", help="Make the playlist public")
     ap.add_argument("--dry-run", action="store_true", help="Match and report, change nothing")
     ap.add_argument(
         "--min-score",
@@ -113,14 +115,19 @@ def _spotify_import_parser() -> argparse.ArgumentParser:
 
 
 def spotify_import_main(argv: "list[str]", client=None) -> int:
-    """Match an exported CSV against Spotify and save hits to Liked Songs.
+    """Match an exported CSV against Spotify and build a playlist.
 
     ``client`` exists so tests can drive the whole command with a fake API;
     normal runs authorize and construct a real one.
     """
     from .spotify.auth import AuthError, get_access_token
     from .spotify.client import SpotifyApiError, SpotifyClient
-    from .spotify.importer import ImportInputError, read_rows, run_import
+    from .spotify.importer import (
+        ImportInputError,
+        default_playlist_name,
+        read_rows,
+        run_import,
+    )
 
     args = _spotify_import_parser().parse_args(argv)
 
@@ -155,6 +162,8 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
             rows,
             client,
             report,
+            name=args.name or default_playlist_name(),
+            public=args.public,
             dry_run=args.dry_run,
             min_score=args.min_score,
             progress=lambda msg: print(msg, flush=True),
@@ -171,9 +180,9 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         "{not_found} not found)".format(**summary)
     )
     if summary["dry_run"]:
-        print(f"Dry run: nothing saved. See {report}.")
+        print(f"Dry run: no playlist created. See {report}.")
     elif summary["added"]:
-        print(f"Added {summary['added']} tracks to your Liked Songs")
+        print(f"Added {summary['added']} tracks to {summary['playlist_url'] or 'your playlist'}")
         print(f"Report: {report}")
     else:
         print(f"Nothing matched confidently enough to add. See {report}.")
