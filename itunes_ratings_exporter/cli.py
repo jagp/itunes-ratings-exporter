@@ -121,7 +121,7 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
     normal runs authorize and construct a real one.
     """
     from .spotify.auth import AuthError, get_access_token
-    from .spotify.client import SpotifyApiError, SpotifyClient
+    from .spotify.client import SpotifyApiError, SpotifyClient, SpotifyQuotaError
     from .spotify.importer import (
         ImportInputError,
         default_playlist_name,
@@ -151,7 +151,10 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         # A dry run still needs search access to score candidates; it simply
         # never writes anything back to the account.
         try:
-            client = SpotifyClient(get_access_token(args.client_id))
+            client = SpotifyClient(
+                get_access_token(args.client_id),
+                announce=lambda msg: print(msg, file=sys.stderr, flush=True),
+            )
         except AuthError as exc:
             print(str(exc), file=sys.stderr)
             return 5
@@ -168,6 +171,12 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
             min_score=args.min_score,
             progress=lambda msg: print(msg, flush=True),
         )
+    except SpotifyQuotaError as exc:
+        print(
+            f"{exc}\nMatches found before the quota ran out were written to {report}.",
+            file=sys.stderr,
+        )
+        return 7
     except SpotifyApiError as exc:
         print(f"{exc}\nPartial results were written to {report}.", file=sys.stderr)
         return 6

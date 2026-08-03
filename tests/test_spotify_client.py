@@ -9,6 +9,7 @@ from itunes_ratings_exporter.spotify.client import (
     MAX_SEARCH_LIMIT,
     SpotifyApiError,
     SpotifyClient,
+    SpotifyQuotaError,
 )
 
 
@@ -64,6 +65,35 @@ def test_rate_limit_is_retried_after_the_requested_delay():
     client.search_tracks("q")
     assert sleeps == [7.0]
     assert len(transport.requests) == 2
+
+
+def test_a_short_rate_limit_wait_is_announced():
+    said = []
+    transport = FakeTransport([(429, {"Retry-After": "7"}, {}), ok({"tracks": {"items": []}})])
+    client = SpotifyClient("tok", transport=transport, sleep=lambda s: None, announce=said.append)
+    client.search_tracks("q")
+    assert "waiting 7s" in said[0]
+
+
+def test_a_quota_length_wait_fails_fast_instead_of_sleeping():
+    # Spotify answers a spent rolling quota with hours. That outlives the
+    # access token, so sleeping through it only defers the failure.
+    sleeps = []
+    client, transport = client_with([(429, {"Retry-After": "10148"}, {})], sleeps)
+    with pytest.raises(SpotifyQuotaError) as exc:
+        client.search_tracks("q")
+    assert sleeps == []
+    assert len(transport.requests) == 1
+    assert exc.value.retry_after == 10148.0
+    assert exc.value.status == 429
+    assert "2.8 hours" in str(exc.value)
+
+
+def test_a_quota_error_is_still_a_spotify_api_error():
+    # Callers that only catch SpotifyApiError must keep working.
+    client, _ = client_with([(429, {"Retry-After": "9999"}, {})])
+    with pytest.raises(SpotifyApiError):
+        client.search_tracks("q")
 
 
 def test_server_errors_back_off_then_succeed():
