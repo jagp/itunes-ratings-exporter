@@ -1,8 +1,7 @@
-"""Turn an exported iTunes CSV into a Spotify playlist."""
+"""Turn an exported iTunes CSV into Spotify Liked Songs."""
 from __future__ import annotations
 
 import csv
-from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
@@ -25,10 +24,6 @@ REPORT_FIELDS = [
 
 class ImportInputError(RuntimeError):
     """The input CSV is missing, unreadable, or the wrong shape."""
-
-
-def default_playlist_name(today: "Optional[date]" = None) -> str:
-    return "iTunes Ratings {}".format((today or date.today()).isoformat())
 
 
 def read_rows(
@@ -90,17 +85,24 @@ def _result_row(row: "dict[str, Any]", match) -> "dict[str, Any]":
     }
 
 
+def _track_id(uri: str) -> str:
+    """Pull the bare ID from a ``spotify:track:<id>`` URI.
+
+    The Library API's Save Tracks endpoint takes IDs, not the URIs search
+    returns, so every accepted match needs this before it can be saved.
+    """
+    return uri.rsplit(":", 1)[-1]
+
+
 def run_import(
     rows: "list[dict[str, Any]]",
     client,
     report_path: "Union[str, Path]",
-    name: "Optional[str]" = None,
-    public: bool = False,
     dry_run: bool = False,
     min_score: float = DEFAULT_MIN_SCORE,
     progress: "Optional[Callable[[str], None]]" = None,
 ) -> "dict[str, Any]":
-    """Match every row, create the playlist, and write the report.
+    """Match every row, save the accepted tracks to Liked Songs, and report.
 
     The report is written even when the API fails partway through, so the
     matching work -- the slow part -- is never lost to a network blip.
@@ -121,20 +123,11 @@ def run_import(
             "matched": len(uris),
             "rejected": sum(1 for r in results if r["status"] == "rejected"),
             "not_found": sum(1 for r in results if r["status"] == "not_found"),
-            "playlist_url": "",
             "added": 0,
             "dry_run": dry_run,
         }
         if uris and not dry_run:
-            user = client.current_user()
-            playlist = client.create_playlist(
-                user["id"],
-                name or default_playlist_name(),
-                public,
-                "Imported from an iTunes library export.",
-            )
-            summary["added"] = client.add_tracks(playlist["id"], uris)
-            summary["playlist_url"] = playlist.get("external_urls", {}).get("spotify", "")
+            summary["added"] = client.save_tracks([_track_id(uri) for uri in uris])
         return summary
     finally:
         write_report(report_path, results)

@@ -33,7 +33,7 @@ path, or full disk).
 
 ## Importing into Spotify
 
-Turn an exported CSV into a Spotify playlist:
+Save an exported CSV to your Spotify **Liked Songs**:
 
 ```
 python -m itunes_ratings_exporter spotify-import [options]
@@ -59,11 +59,9 @@ in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--csv PATH` | `export/rated.csv` | Input CSV |
-| `--name NAME` | `iTunes Ratings <today>` | Playlist name |
 | `--min-stars N` | `4` | Only import tracks rated at least N stars |
 | `--limit N` | all | Import at most N tracks — good for a trial run |
-| `--public` | off | Create a public playlist |
-| `--dry-run` | off | Match and report, but create nothing |
+| `--dry-run` | off | Match and report, but save nothing |
 | `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
 | `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
 | `--report PATH` | next to the input CSV | Where the report is written |
@@ -79,7 +77,7 @@ python -m itunes_ratings_exporter spotify-import --min-stars 5 --limit 20 --dry-
 iTunes and Spotify disagree about metadata constantly — remaster suffixes,
 where featured artists live, live versions. Each track is scored on title
 similarity, artist similarity, and runtime proximity. Matching is deliberately
-conservative: a wrong song in your playlist is silent and may go unnoticed, but
+conservative: a wrong song in your library is silent and may go unnoticed, but
 a dropped song appears in the report where you can see it. Lower `--min-score`
 to accept more, raise it to accept less.
 
@@ -88,7 +86,9 @@ of `matched`, `rejected` (a near miss, shown with the candidate so you can
 judge it), or `not_found`. The report is written even if the run fails partway,
 so matching work is never lost.
 
-Each run creates a new playlist; it never modifies an existing one.
+Matched tracks are added to your Liked Songs. Spotify treats saving an
+already-saved track as a no-op, so re-running is safe and will not create
+duplicates.
 
 Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization
 failed, `6` the Spotify API failed (the report is still written).

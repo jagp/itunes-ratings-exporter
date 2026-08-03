@@ -15,8 +15,8 @@ from typing import Any, Callable, Optional
 
 API_BASE = "https://api.spotify.com/v1"
 
-# Spotify accepts at most 100 track URIs per add-to-playlist call.
-ADD_TRACKS_BATCH = 100
+# Spotify accepts at most 50 track IDs per Save Tracks call.
+SAVE_TRACKS_BATCH = 50
 
 _MAX_RATE_LIMIT_RETRIES = 5
 _MAX_SERVER_ERROR_RETRIES = 3
@@ -94,25 +94,12 @@ class SpotifyClient:
     def current_user(self) -> "dict[str, Any]":
         return self._request("GET", API_BASE + "/me")
 
-    def create_playlist(
-        self, user_id: str, name: str, public: bool = False, description: str = ""
-    ) -> "dict[str, Any]":
-        return self._request(
-            "POST",
-            "{}/users/{}/playlists".format(API_BASE, urllib.parse.quote(user_id)),
-            {"name": name, "public": public, "description": description},
-        )
-
-    def add_tracks(self, playlist_id: str, uris: "list[str]") -> int:
-        """Add URIs in API-sized batches. Returns how many were sent."""
+    def save_tracks(self, track_ids: "list[str]") -> int:
+        """Add tracks to the user's Liked Songs, batched at the API limit."""
         added = 0
-        for start in range(0, len(uris), ADD_TRACKS_BATCH):
-            batch = uris[start : start + ADD_TRACKS_BATCH]
-            self._request(
-                "POST",
-                "{}/playlists/{}/tracks".format(API_BASE, urllib.parse.quote(playlist_id)),
-                {"uris": batch},
-            )
+        for start in range(0, len(track_ids), SAVE_TRACKS_BATCH):
+            batch = track_ids[start : start + SAVE_TRACKS_BATCH]
+            self._request("PUT", API_BASE + "/me/tracks", {"ids": batch})
             added += len(batch)
         return added
 
