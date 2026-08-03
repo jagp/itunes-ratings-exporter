@@ -207,6 +207,7 @@ def _store(response: "dict[str, Any]", previous_refresh: str, now: float) -> "di
         "access_token": response.get("access_token", ""),
         "refresh_token": response.get("refresh_token") or previous_refresh,
         "expires_at": now + float(response.get("expires_in", 3600)),
+        "scope": response.get("scope", ""),
     }
 
 
@@ -227,6 +228,13 @@ def get_access_token(
         )
     cache_path = cache_path or default_cache_path()
     cached = load_tokens(cache_path) or {}
+
+    if cached and cached.get("scope") != SCOPES:
+        # Scopes changed since this cache was written (or it predates scope
+        # tracking). Refreshing would hand back a token that cannot do what
+        # was just asked, and Spotify reports that as a bare 403, so force a
+        # fresh consent instead.
+        cached = {}
 
     if cached.get("access_token") and cached.get("expires_at", 0) > now() + _EXPIRY_MARGIN_SECONDS:
         return cached["access_token"]
