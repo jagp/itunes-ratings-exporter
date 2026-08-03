@@ -67,6 +67,7 @@ in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
 | `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
 | `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
 | `--restart` | off | Rebuild the work queue from the input CSV |
+| `--rate F` | `2.0` | Requests per second to Spotify; `0` disables pacing |
 | `--quiet` | off | Print totals only, not every track |
 
 A first run worth trying:
@@ -128,6 +129,26 @@ playlist.
 
 `--restart` rebuilds the queue from the export, discarding matching progress.
 The log is kept, so tracks already in the playlist are not imported twice.
+
+### Quota
+
+Spotify limits how many requests an app may make, and a large library is
+thousands of searches. Two things follow.
+
+Requests are paced (`--rate`, default 2/second) rather than fired as fast as
+they will go, which keeps short burst limits at bay; getting throttled anyway
+widens the pace for the rest of the run.
+
+Pacing does not help with the larger ceiling, though, because that one is a
+**budget rather than a rate** — a fixed number of requests per rolling day. A
+826-track run reached track 593 and landed 500 tracks in the playlist before
+Spotify asked for 23.9 hours. There is nothing to do about that but re-run the
+next day; the queue makes it painless. If you hit it repeatedly, an app in
+Spotify's default development mode can apply for extended quota.
+
+Because the budget is spent per *request*, a resume searches never-seen tracks
+before retrying tracks it has already judged: a recorded near miss costs the
+same three searches as an unseen track but cannot add anything to the playlist.
 
 Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization
 failed, `6` the Spotify API failed, `7` the account's request quota is spent.

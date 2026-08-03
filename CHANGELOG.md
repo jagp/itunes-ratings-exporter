@@ -42,6 +42,14 @@ has yet survived a real one.
 - Per-track progress logging **[untested]**, so a run cut short by a crash or a
   spent quota still leaves a scrollback record of exactly what was resolved.
   `--quiet` restores totals-only output.
+- `--rate` paces requests to Spotify (default 2/second) rather than only
+  backing off once a 429 arrives. Note that pacing addresses a *rate* limit;
+  a live 826-track run showed the binding constraint is a *request budget* —
+  see "Known limits" below.
+- A resume searches never-seen tracks before retrying recorded near misses.
+  Requests, not tracks, are the scarce resource, and re-examining a known miss
+  costs the same three searches as an unseen track while being unable to add
+  anything to the playlist. The queue file itself stays in library order.
 - `--dry-run`, `--limit`, `--public`, `--name`, `--quiet`, `--client-id`.
 - Exit codes `4` (input CSV missing or malformed), `5` (authorization failed),
   `6` (Spotify API failure), `7` **[untested]** (request quota spent — wait the
@@ -61,9 +69,28 @@ has yet survived a real one.
   one with a `Retry-After` of several hours — longer than the access token
   lives — so waiting it out only traded a visible failure for a later 401 while
   appearing to hang. Waits past two minutes now stop and say when to come back.
-- Cached tokens record their scopes and force a fresh consent when those scopes
-  change. A refreshed token carrying stale scopes fails as a bare 403 with no
-  indication that re-consenting is the fix.
+- Cached tokens record their scopes and force a fresh consent when the cache
+  cannot cover what the run needs. A refreshed token missing a scope fails as a
+  bare 403 with no indication that re-consenting is the fix. Coverage is tested
+  by containment rather than string equality: a cache holding *more* scopes
+  than the run requires is perfectly usable, and comparing for equality dragged
+  the user through a browser consent to end up with strictly fewer permissions
+  than they already had. Scope strings are unordered, so equality was fragile
+  on ordering alone.
+
+### Known limits
+
+- A full 826-track run reached track 593 and put **500 tracks** in the playlist
+  before Spotify answered `429` with a `Retry-After` of 23.9 hours. The queue
+  and log survived it intact (326 + 500 = 826, no overlap), and re-running
+  continues where it stopped.
+- That ceiling is a **request budget, not a request rate**: it was reached at a
+  deliberately slow 2 requests/second, and the retry window grew from 2.8 hours
+  to 23.9 hours across runs. Pacing therefore does not avoid it. Matching
+  spends up to three searches per track, and the ~87 tracks that resolved to
+  `rejected`/`not_found` consumed roughly 28% of the budget while adding
+  nothing. Raising the ceiling means applying for Spotify's extended quota;
+  lowering the cost means fewer searches per track.
 
 ## 1.0.0
 

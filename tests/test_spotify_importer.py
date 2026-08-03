@@ -5,7 +5,9 @@ import pytest
 from itunes_ratings_exporter.spotify.client import SpotifyApiError
 from itunes_ratings_exporter.spotify.importer import (
     PENDING,
+    QUEUE_FIELDS,
     ImportInputError,
+    _write,
     build_queue,
     default_log_path,
     default_playlist_name,
@@ -356,3 +358,66 @@ def test_default_playlist_name_carries_the_date():
     from datetime import date
 
     assert default_playlist_name(date(2026, 8, 2)) == "iTunes Ratings 2026-08-02"
+
+
+def test_a_resume_searches_unseen_tracks_before_retrying_near_misses(tmp_path):
+    # After a spent quota, requests -- not tracks -- are the scarce resource.
+    # Re-examining a recorded near miss costs the same three searches as a
+    # track nobody has looked at, but only the latter can add anything to the
+    # playlist, so the unseen work has to go first.
+    csv_path, queue_path, _ = paths(tmp_path)
+    _write(
+        queue_path,
+        QUEUE_FIELDS,
+        [
+            {
+                "persistent_id": "2",
+                "title": "Creep",
+                "artist": "Radiohead",
+                "duration_ms": "238000",
+                "status": "rejected",
+                "score": "0.700",
+            },
+            {
+                "persistent_id": "1",
+                "title": "Karma Police",
+                "artist": "Radiohead",
+                "duration_ms": "263000",
+                "status": PENDING,
+            },
+        ],
+    )
+    client = FakeClient(full_catalogue())
+    do_import(tmp_path, client, csv_path=csv_path)
+    # Searched first despite sitting second in the queue file.
+    assert "Karma Police" in client.queries[0]
+    assert any("Creep" in q for q in client.queries)
+
+
+def test_reordering_the_search_does_not_reorder_the_queue_file(tmp_path):
+    # The queue is the user's view of what is left; it should still read in
+    # library order even though the run works through it out of order.
+    csv_path, queue_path, _ = paths(tmp_path)
+    _write(
+        queue_path,
+        QUEUE_FIELDS,
+        [
+            {
+                "persistent_id": "2",
+                "title": "Creep",
+                "artist": "Radiohead",
+                "duration_ms": "238000",
+                "status": "rejected",
+            },
+            {
+                "persistent_id": "3",
+                "title": "Idioteque",
+                "artist": "Radiohead",
+                "duration_ms": "228000",
+                "status": PENDING,
+            },
+        ],
+    )
+    # A catalogue with nothing in it, so neither track leaves the queue.
+    do_import(tmp_path, FakeClient({}), csv_path=csv_path)
+    assert [r["persistent_id"] for r in read_queue(queue_path)] == ["2", "3"]

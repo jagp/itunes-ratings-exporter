@@ -87,6 +87,7 @@ def export_main(argv: "list[str]") -> int:
 
 
 def _spotify_import_parser() -> argparse.ArgumentParser:
+    from .spotify.client import DEFAULT_REQUESTS_PER_SECOND
     from .spotify.matcher import DEFAULT_MIN_SCORE
 
     ap = argparse.ArgumentParser(
@@ -116,6 +117,14 @@ def _spotify_import_parser() -> argparse.ArgumentParser:
         help="Rebuild the work queue from the input CSV, discarding the "
         "matching done so far. The log of tracks already in the playlist is "
         "kept, so they are not imported twice.",
+    )
+    ap.add_argument(
+        "--rate",
+        type=float,
+        default=DEFAULT_REQUESTS_PER_SECOND,
+        help="Requests per second to Spotify (default: %(default)s). Lower is "
+        "safer on a large library: a spent rolling quota locks the account "
+        "out for hours, while pacing costs minutes. 0 disables pacing.",
     )
     ap.add_argument(
         "--quiet",
@@ -195,6 +204,7 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
             client = SpotifyClient(
                 get_access_token(args.client_id),
                 announce=lambda msg: print(msg, file=sys.stderr, flush=True),
+                requests_per_second=args.rate,
             )
         except AuthError as exc:
             print(str(exc), file=sys.stderr)
@@ -211,6 +221,16 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         print(f"Continuing: {outstanding} tracks still queued in {queue_path}")
 
     print(f"Matching {len(rows)} tracks against Spotify...")
+    if args.rate > 0:
+        # Matching spends up to three searches on a track and stops at the
+        # first one that lands, so this is an upper bound, not a promise.
+        pending = outstanding or len(rows)
+        print(
+            "Paced at {:g} requests/second -- up to about {:.0f} minutes. "
+            "A spent quota costs hours, so this errs slow.".format(
+                args.rate, pending * 3.0 / args.rate / 60.0
+            )
+        )
     try:
         summary = run_import(
             rows,
