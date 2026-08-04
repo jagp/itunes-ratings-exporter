@@ -67,6 +67,7 @@ in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
 | `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
 | `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
 | `--restart` | off | Rebuild the work queue from the input CSV |
+| `--rate F` | `2.0` | Requests per second to Spotify; `0` disables pacing |
 | `--quiet` | off | Print totals only, not every track |
 
 A first run worth trying:
@@ -128,6 +129,42 @@ playlist.
 
 `--restart` rebuilds the queue from the export, discarding matching progress.
 The log is kept, so tracks already in the playlist are not imported twice.
+
+### Quota
+
+Spotify limits how many requests an app may make, and a large library is
+thousands of searches. Two things follow.
+
+Requests are paced (`--rate`, default 2/second) rather than fired as fast as
+they will go, and getting throttled widens the pace for the rest of the run.
+Treat this as a precaution rather than a fix: across a full 826-track run the
+burst-retry path never fired once, so there is currently **no evidence that
+pacing helps** this workload.
+
+The ceiling that does bite is not yet understood. A run reached track 593 and
+landed 500 tracks before Spotify asked for 23.9 hours — at a deliberately slow
+2 requests/second. That is consistent with either a fixed request budget per
+rolling day (in which case pacing is irrelevant) or a rate limit with
+escalating penalties (in which case 2/second is still too fast). Nothing
+observed so far distinguishes them.
+
+So every run now reports what it spent:
+
+```
+Spent 912 Spotify requests this run (paced at 2/s).
+```
+
+The two explanations predict different things about that number: a budget caps
+it whatever the pace, while a rate limit should let a slower run reach a higher
+count. Comparing consecutive runs at different `--rate` values is what will
+settle it. Either way the practical answer is the same — re-run the next day,
+which the queue makes painless — and an app on Spotify's default development
+quota can apply for extended quota to raise the ceiling.
+
+Because the ceiling is spent per *request* under either explanation, a resume
+searches never-seen tracks before retrying tracks it has already judged: a
+recorded near miss costs the same three searches as an unseen track but cannot
+add anything to the playlist.
 
 Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization
 failed, `6` the Spotify API failed, `7` the account's request quota is spent.

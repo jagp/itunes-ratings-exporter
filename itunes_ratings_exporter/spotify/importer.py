@@ -281,7 +281,14 @@ def run_import(
         delivered.extend(r for r in queue if r["status"] == "matched" and r["spotify_uri"])
         flush()
 
-        todo = [r for r in queue if r["status"] != "matched"]
+        # Never-searched tracks go first. Spotify's budget is spent per
+        # request, not per track, and re-examining a known near miss costs the
+        # same three searches as a track nobody has looked at yet -- but only
+        # one of the two can put something in the playlist. On a resume after
+        # a spent quota that ordering is the difference between progress and
+        # paying full price to reconfirm verdicts already recorded.
+        todo = [r for r in queue if r["status"] == PENDING]
+        todo += [r for r in queue if r["status"] not in (PENDING, "matched")]
         for count, item in enumerate(todo, start=1):
             _record_match(item, find_match(item, client, min_score))
             tally["searched"] += 1

@@ -32,6 +32,19 @@ _MAX_SERVER_ERROR_RETRIES = 3
 # come back rather than appearing to hang.
 MAX_RETRY_WAIT_SECONDS = 120
 
+# Backing off only once Spotify has said 429 is already too late: the limit is
+# a rolling window, so the answer to a spent one is a Retry-After measured in
+# hours. Pacing every request costs minutes across a whole library and is the
+# only thing that keeps a thousand-search run from reaching that wall at all.
+# The trade is lopsided enough that the default errs slow.
+DEFAULT_REQUESTS_PER_SECOND = 2.0
+
+# One burst limit means the chosen pace is wrong for the rest of the run, not
+# merely for the request that tripped it -- so the interval widens and stays
+# widened rather than springing back.
+_SLOWDOWN_FACTOR = 1.5
+_MAX_INTERVAL_SECONDS = 10.0
+
 
 class SpotifyApiError(RuntimeError):
     """A Spotify request failed in a way retrying will not fix."""
@@ -74,6 +87,8 @@ class SpotifyClient:
         transport: "Optional[Callable[..., Any]]" = None,
         sleep: "Callable[[float], None]" = time.sleep,
         announce: "Optional[Callable[[str], None]]" = None,
+        requests_per_second: float = DEFAULT_REQUESTS_PER_SECOND,
+        monotonic: "Callable[[], float]" = time.monotonic,
     ):
         self._token = access_token
         self._transport = transport or urllib_transport
@@ -82,6 +97,48 @@ class SpotifyClient:
         # pass ``announce`` to surface backoffs as they happen.
         self._announce = announce or (lambda message: None)
         self._search_cache: "dict[str, list[dict]]" = {}
+        self._monotonic = monotonic
+        # Whether the quota that stops a large run is a fixed budget or a rate
+        # is not currently answerable, because no run has ever recorded how
+        # many requests it actually made. The two possibilities predict
+        # different things about this number -- a budget caps it regardless of
+        # pace, a rate limit lets a slower run reach a higher one -- so it is
+        # counted and reported rather than inferred.
+        self.requests_made = 0
+        # A rate of zero disables pacing outright, which is what tests about
+        # retry behaviour want -- they assert on the exact sleeps a response
+        # provoked, and a throttle would add its own.
+        self._interval = 1.0 / requests_per_second if requests_per_second > 0 else 0.0
+        self._next_request_at = 0.0
+
+    def _pace(self) -> None:
+        """Hold each request back until the chosen interval has elapsed.
+
+        Deliberately blind to how long the request itself took: the clock is
+        read again afterwards, so a slow response counts toward its own
+        spacing and only genuinely-too-fast calls wait.
+        """
+        if self._interval <= 0.0:
+            return
+        now = self._monotonic()
+        wait = self._next_request_at - now
+        if wait > 0.0:
+            self._sleep(wait)
+            now += wait
+        self._next_request_at = now + self._interval
+
+    def _slow_down(self) -> None:
+        """Widen the pace permanently after Spotify signals a burst limit."""
+        if self._interval <= 0.0:
+            return
+        widened = min(self._interval * _SLOWDOWN_FACTOR, _MAX_INTERVAL_SECONDS)
+        if widened > self._interval:
+            self._interval = widened
+            self._announce(
+                "Easing off to {:.2f} requests/second for the rest of the run".format(
+                    1.0 / widened
+                )
+            )
 
     def _request(
         self,
@@ -97,7 +154,11 @@ class SpotifyClient:
         rate_limit_retries = 0
         server_error_retries = 0
         while True:
+            self._pace()
             request = urllib.request.Request(url, data=body, headers=headers, method=method)
+            # Counted before the response is seen: a retried call still spent
+            # a request, and a 429 is what we most want the count next to.
+            self.requests_made += 1
             status, response_headers, raw = self._transport(request)
             if 200 <= status < 300:
                 return json.loads(raw.decode("utf-8")) if raw else {}
@@ -122,6 +183,8 @@ class SpotifyClient:
                         )
                     )
                     self._sleep(wait)
+                    # Being throttled at all means the pace was too fast.
+                    self._slow_down()
                     continue
             if status >= 500 and server_error_retries < _MAX_SERVER_ERROR_RETRIES:
                 server_error_retries += 1

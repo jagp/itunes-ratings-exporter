@@ -96,7 +96,36 @@ def test_unexpired_cached_token_is_reused_without_any_request(tmp_path):
     assert transport.calls == []
 
 
-def test_a_scope_change_discards_the_cache_and_forces_re_consent(tmp_path, monkeypatch):
+def test_scope_coverage_is_containment_not_equality():
+    # A grant carrying extra scopes can still do everything this run needs.
+    assert auth.covers_scopes(auth.SCOPES)
+    assert auth.covers_scopes("user-library-read " + auth.SCOPES)
+    # Order is not meaningful in a scope string.
+    assert auth.covers_scopes(" ".join(reversed(auth.SCOPES.split())))
+    # A shortfall is what actually matters.
+    assert not auth.covers_scopes("playlist-modify-private")
+    assert not auth.covers_scopes("")
+
+
+def test_a_cache_with_extra_scopes_is_kept_rather_than_re_consented(tmp_path):
+    # Discarding a superset grant would drag the user through a browser
+    # consent to end up with strictly fewer permissions than they already had.
+    path = tmp_path / "token.json"
+    auth.save_tokens(
+        path,
+        {
+            "access_token": "cached",
+            "refresh_token": "r",
+            "expires_at": 5000,
+            "scope": "user-library-read user-library-modify " + auth.SCOPES,
+        },
+    )
+    transport = token_transport([])
+    assert auth.get_access_token("cid", path, transport, now=lambda: 1000) == "cached"
+    assert transport.calls == []
+
+
+def test_a_missing_scope_discards_the_cache_and_forces_re_consent(tmp_path, monkeypatch):
     path = tmp_path / "token.json"
     auth.save_tokens(
         path,

@@ -182,6 +182,17 @@ def refresh_access_token(client_id: str, refresh_token: str, transport=None) -> 
     )
 
 
+def covers_scopes(granted: str, required: str = SCOPES) -> bool:
+    """Whether a cached grant is good enough for what we are about to do.
+
+    Containment, not equality. A cache carrying *more* scopes than this run
+    needs is perfectly usable, and discarding it would drag the user through
+    a browser consent for nothing. Scope strings are space-separated and
+    carry no meaningful order, so they are compared as sets either way.
+    """
+    return set(required.split()) <= set((granted or "").split())
+
+
 def load_tokens(path: Path) -> "Optional[dict[str, Any]]":
     try:
         with open(path, encoding="utf-8") as f:
@@ -229,11 +240,11 @@ def get_access_token(
     cache_path = cache_path or default_cache_path()
     cached = load_tokens(cache_path) or {}
 
-    if cached and cached.get("scope") != SCOPES:
-        # Scopes changed since this cache was written (or it predates scope
-        # tracking). Refreshing would hand back a token that cannot do what
-        # was just asked, and Spotify reports that as a bare 403, so force a
-        # fresh consent instead.
+    if cached and not covers_scopes(cached.get("scope", "")):
+        # The cache cannot do what is about to be asked of it. Refreshing
+        # would hand back a token with the same shortfall, and Spotify reports
+        # that as a bare 403 with no hint that re-consenting is the fix, so
+        # force a fresh consent instead.
         cached = {}
 
     if cached.get("access_token") and cached.get("expires_at", 0) > now() + _EXPIRY_MARGIN_SECONDS:

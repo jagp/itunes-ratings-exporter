@@ -36,9 +36,29 @@ def client_with(responses, sleeps=None):
     # list whenever the caller passed an (empty, therefore falsy) one.
     recorded = [] if sleeps is None else sleeps
     return (
-        SpotifyClient("tok", transport=transport, sleep=recorded.append),
+        # Pacing off: these tests assert on the exact sleeps a *response*
+        # provoked, and the throttle would mix its own in. It has its own
+        # tests below, driven by a fake clock.
+        SpotifyClient(
+            "tok", transport=transport, sleep=recorded.append, requests_per_second=0
+        ),
         transport,
     )
+
+
+class FakeClock:
+    """A monotonic clock that only moves when something sleeps."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def sleep(self, seconds):
+        self.sleeps.append(round(seconds, 6))
+        self.now += seconds
+
+    def __call__(self):
+        return self.now
 
 
 def test_search_sends_a_bearer_token_and_track_type():
@@ -152,3 +172,119 @@ def test_add_tracks_with_nothing_makes_no_requests():
     client, transport = client_with([])
     assert client.add_tracks("pl1", []) == 0
     assert transport.requests == []
+
+
+def paced_client(responses, requests_per_second=2.0):
+    clock = FakeClock()
+    transport = FakeTransport(responses)
+    client = SpotifyClient(
+        "tok",
+        transport=transport,
+        sleep=clock.sleep,
+        monotonic=clock,
+        requests_per_second=requests_per_second,
+        announce=lambda m: None,
+    )
+    return client, transport, clock
+
+
+def test_requests_are_spaced_out_without_waiting_for_a_429():
+    # The whole point: a spent rolling quota costs hours, so the client paces
+    # itself rather than discovering the limit by hitting it.
+    client, _, clock = paced_client([ok({"id": "a"}), ok({"id": "b"}), ok({"id": "c"})])
+    for _ in range(3):
+        client.current_user()
+    # The first request goes straight out; each later one waits its turn.
+    assert clock.sleeps == [0.5, 0.5]
+
+
+def test_a_slow_response_counts_towards_its_own_spacing():
+    # Pacing is about request *rate*, not about adding delay on top of it. If
+    # a call already took longer than the interval, the next one owes nothing.
+    clock = FakeClock()
+
+    class SlowTransport(FakeTransport):
+        def __call__(self, request):
+            clock.now += 5.0  # the network took longer than the interval
+            return super().__call__(request)
+
+    transport = SlowTransport([ok({"id": "a"}), ok({"id": "b"})])
+    client = SpotifyClient(
+        "tok", transport=transport, sleep=clock.sleep, monotonic=clock, requests_per_second=2.0
+    )
+    client.current_user()
+    client.current_user()
+    assert clock.sleeps == []
+
+
+def test_a_burst_limit_widens_the_pace_for_the_rest_of_the_run():
+    # Getting throttled once says the pace is wrong going forward, not just
+    # for the request that tripped it -- so the interval must not spring back.
+    client, _, clock = paced_client(
+        [(429, {"Retry-After": "3"}, {}), ok({"id": "a"}), ok({"id": "b"})]
+    )
+    client.current_user()
+    clock.sleeps.clear()
+    client.current_user()
+    # 0.5s widened by 1.5 once the 429 landed.
+    assert clock.sleeps == [0.75]
+
+
+def test_the_widened_pace_is_announced_so_a_long_run_explains_itself():
+    said = []
+    clock = FakeClock()
+    transport = FakeTransport([(429, {"Retry-After": "3"}, {}), ok({"id": "a"})])
+    client = SpotifyClient(
+        "tok",
+        transport=transport,
+        sleep=clock.sleep,
+        monotonic=clock,
+        requests_per_second=2.0,
+        announce=said.append,
+    )
+    client.current_user()
+    assert any("1.33 requests/second" in message for message in said)
+
+
+def test_pacing_never_widens_past_a_floor():
+    # Repeated throttling must not compound into an effectively frozen client.
+    client, _, clock = paced_client(
+        [(429, {"Retry-After": "1"}, {})] * 5 + [ok({"id": "a"})], requests_per_second=2.0
+    )
+    client.current_user()
+    assert client._interval <= 10.0
+
+
+def test_a_quota_error_does_not_widen_the_pace():
+    # Nothing survives a spent quota, so there is no "rest of the run" to
+    # slow down -- the run stops instead.
+    client, _, _ = paced_client([(429, {"Retry-After": "10148"}, {})])
+    before = client._interval
+    with pytest.raises(SpotifyQuotaError):
+        client.current_user()
+    assert client._interval == before
+
+
+def test_every_request_is_counted_including_retries():
+    # The count is the only thing that can distinguish a spent request budget
+    # from a rate limit, so a retried call must not be counted as free.
+    client, _ = client_with(
+        [(429, {"Retry-After": "1"}, {}), ok({"tracks": {"items": []}}), ok({"id": "me"})]
+    )
+    client.search_tracks("q")
+    client.current_user()
+    assert client.requests_made == 3
+
+
+def test_a_fresh_client_has_spent_nothing():
+    client, _ = client_with([])
+    assert client.requests_made == 0
+
+
+def test_cached_searches_do_not_spend_a_request():
+    # The count has to mean requests actually put on the wire, or it cannot
+    # be compared against a quota.
+    client, _ = client_with([ok({"tracks": {"items": []}})])
+    client.search_tracks("same")
+    client.search_tracks("same")
+    assert client.requests_made == 1
