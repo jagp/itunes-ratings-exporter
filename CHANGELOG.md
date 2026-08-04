@@ -43,9 +43,10 @@ has yet survived a real one.
   spent quota still leaves a scrollback record of exactly what was resolved.
   `--quiet` restores totals-only output.
 - `--rate` paces requests to Spotify (default 2/second) rather than only
-  backing off once a 429 arrives. Note that pacing addresses a *rate* limit;
-  a live 826-track run showed the binding constraint is a *request budget* —
-  see "Known limits" below.
+  backing off once a 429 arrives. Precautionary: no run has yet produced
+  evidence that it helps — see "Known limits" below.
+- Every run reports how many Spotify requests it spent, and at what pace, so
+  that the nature of the quota ceiling can be measured rather than guessed.
 - A resume searches never-seen tracks before retrying recorded near misses.
   Requests, not tracks, are the scarce resource, and re-examining a known miss
   costs the same three searches as an unseen track while being unable to add
@@ -84,13 +85,27 @@ has yet survived a real one.
   before Spotify answered `429` with a `Retry-After` of 23.9 hours. The queue
   and log survived it intact (326 + 500 = 826, no overlap), and re-running
   continues where it stopped.
-- That ceiling is a **request budget, not a request rate**: it was reached at a
-  deliberately slow 2 requests/second, and the retry window grew from 2.8 hours
-  to 23.9 hours across runs. Pacing therefore does not avoid it. Matching
-  spends up to three searches per track, and the ~87 tracks that resolved to
-  `rejected`/`not_found` consumed roughly 28% of the budget while adding
-  nothing. Raising the ceiling means applying for Spotify's extended quota;
-  lowering the cost means fewer searches per track.
+- **What that ceiling actually is remains unknown.** Two hypotheses fit the
+  evidence equally well: a fixed request budget per rolling day, or a rate
+  limit with escalating penalties where 2/second is still too fast. Nothing
+  observed so far separates them, and no run has recorded how many requests it
+  made, so even the size of the ceiling is only bounded (~770–1,780) rather
+  than measured.
+- Pacing has **no evidence supporting it** in this workload. Across the entire
+  826-track run the short-burst retry path fired zero times and the pace never
+  widened, so the mechanism `--rate` guards against was never observed. It is
+  retained as a cheap precaution, not as a demonstrated fix; the earlier
+  improvement from 0 to 500 tracks imported was due to incremental flushing
+  alone.
+- Runs now report requests spent alongside the pace they were spent at. The
+  two hypotheses predict different things about that pair — a budget caps the
+  count whatever the pace, a rate limit lets a slower run reach a higher count
+  — so consecutive runs at different `--rate` values will settle it.
+- Matching spends up to three searches per track, and the ~87 tracks that
+  resolved to `rejected`/`not_found` consumed roughly 28% of the run's
+  requests while adding nothing. Regardless of which hypothesis holds, fewer
+  searches per track is the lever that costs least; Spotify's extended quota
+  is the one that raises the ceiling.
 
 ## 1.0.0
 

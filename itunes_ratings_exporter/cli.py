@@ -164,6 +164,22 @@ def _print_track(count: int, total: int, result: "dict[str, str]") -> None:
     print(line, flush=True)
 
 
+def _request_cost(client, rate: float) -> str:
+    """Report what the run spent, paired with the pace it spent it at.
+
+    Whether the ceiling that stops a large import is a fixed request budget or
+    a rate limit is still open, and the two predict different things about
+    this pair: a budget caps the count whatever the pace, while a rate limit
+    lets a slower run reach a higher count. Printing both together is what
+    makes consecutive runs comparable instead of anecdotal.
+    """
+    made = getattr(client, "requests_made", None)
+    if not made:
+        return ""
+    pace = "unpaced" if rate <= 0 else "{:g}/s".format(rate)
+    return "Spent {} Spotify requests this run (paced at {}).".format(made, pace)
+
+
 def spotify_import_main(argv: "list[str]", client=None) -> int:
     """Match an exported CSV against Spotify and build a playlist.
 
@@ -247,7 +263,8 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         )
     except SpotifyQuotaError as exc:
         print(
-            f"{exc}\n{queue_path} holds what is left; tracks already in the "
+            f"{exc}\n{_request_cost(client, args.rate)}\n"
+            f"{queue_path} holds what is left; tracks already in the "
             f"playlist have moved to {log_path}.\nRe-run the same command to "
             f"carry on -- it picks up from the queue.",
             file=sys.stderr,
@@ -259,6 +276,10 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
     except OSError as exc:
         print(f"Could not write to {queue_path}: {exc}", file=sys.stderr)
         return 3
+
+    cost = _request_cost(client, args.rate)
+    if cost:
+        print(cost)
 
     where = summary["playlist_url"] or "your playlist"
     if summary["dry_run"]:

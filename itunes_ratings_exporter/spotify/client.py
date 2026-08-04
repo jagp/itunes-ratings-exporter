@@ -98,6 +98,13 @@ class SpotifyClient:
         self._announce = announce or (lambda message: None)
         self._search_cache: "dict[str, list[dict]]" = {}
         self._monotonic = monotonic
+        # Whether the quota that stops a large run is a fixed budget or a rate
+        # is not currently answerable, because no run has ever recorded how
+        # many requests it actually made. The two possibilities predict
+        # different things about this number -- a budget caps it regardless of
+        # pace, a rate limit lets a slower run reach a higher one -- so it is
+        # counted and reported rather than inferred.
+        self.requests_made = 0
         # A rate of zero disables pacing outright, which is what tests about
         # retry behaviour want -- they assert on the exact sleeps a response
         # provoked, and a throttle would add its own.
@@ -149,6 +156,9 @@ class SpotifyClient:
         while True:
             self._pace()
             request = urllib.request.Request(url, data=body, headers=headers, method=method)
+            # Counted before the response is seen: a retried call still spent
+            # a request, and a 429 is what we most want the count next to.
+            self.requests_made += 1
             status, response_headers, raw = self._transport(request)
             if 200 <= status < 300:
                 return json.loads(raw.decode("utf-8")) if raw else {}

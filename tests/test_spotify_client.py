@@ -263,3 +263,28 @@ def test_a_quota_error_does_not_widen_the_pace():
     with pytest.raises(SpotifyQuotaError):
         client.current_user()
     assert client._interval == before
+
+
+def test_every_request_is_counted_including_retries():
+    # The count is the only thing that can distinguish a spent request budget
+    # from a rate limit, so a retried call must not be counted as free.
+    client, _ = client_with(
+        [(429, {"Retry-After": "1"}, {}), ok({"tracks": {"items": []}}), ok({"id": "me"})]
+    )
+    client.search_tracks("q")
+    client.current_user()
+    assert client.requests_made == 3
+
+
+def test_a_fresh_client_has_spent_nothing():
+    client, _ = client_with([])
+    assert client.requests_made == 0
+
+
+def test_cached_searches_do_not_spend_a_request():
+    # The count has to mean requests actually put on the wire, or it cannot
+    # be compared against a quota.
+    client, _ = client_with([ok({"tracks": {"items": []}})])
+    client.search_tracks("same")
+    client.search_tracks("same")
+    assert client.requests_made == 1
