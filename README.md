@@ -123,6 +123,16 @@ it) or `not_found`. Re-running retries them, which is what you want after
 lowering `--min-score` or when a miss was just a bad search. Matching results
 are kept, so a re-run spends search quota only on tracks that still need it.
 
+The queue is stored **least-tried first**, with an `attempts` count per track.
+Tracks nobody has searched yet lead; a track that is tried and stays unresolved
+sinks below everything tried fewer times. Since Spotify's ceiling is spent per
+*request* rather than per track, and re-examining a known near miss costs the
+same searches as a track nobody has looked at — while only the latter can add
+anything to the playlist — this is what stops a series of quota-limited runs
+from spending their whole budget on the same head of the list. The order is
+written to the file, not just used within a run, so a run cut short by a spent
+quota still leaves the correct work list behind.
+
 A run creates a playlist the first time and tops up that same playlist on
 later runs, so an import broken across several sessions still ends as one
 playlist.

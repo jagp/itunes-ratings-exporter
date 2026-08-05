@@ -43,6 +43,7 @@ QUEUE_FIELDS = [
     "spotify_uri",
     "spotify_title",
     "spotify_artist",
+    "attempts",
 ]
 
 LOG_FIELDS = QUEUE_FIELDS + ["added_to"]
@@ -149,7 +150,38 @@ def queue_row(row: "dict[str, Any]") -> "dict[str, Any]":
     item["spotify_uri"] = ""
     item["spotify_title"] = ""
     item["spotify_artist"] = ""
+    item["attempts"] = "0"
     return item
+
+
+def attempts(row: "dict[str, Any]") -> int:
+    """How many runs have already spent searches on this track.
+
+    Rows written before the column existed are inferred from their status: a
+    pending row has never been searched, and anything else has been searched
+    at least once. That keeps an existing queue from being re-sorted into a
+    lie the first time a newer build reads it.
+    """
+    raw = (row.get("attempts") or "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return 0 if row.get("status") == PENDING else 1
+
+
+def order_queue(queue: "list[dict[str, Any]]") -> "list[dict[str, Any]]":
+    """Least-tried first; ties keep the order they already had.
+
+    This is the whole scheduling rule, and it is applied to the file itself
+    rather than only to a run's iteration order. A track that gets tried and
+    stays unresolved sinks below everything tried fewer times, so successive
+    runs rotate through the backlog instead of re-attacking the same head of
+    the list every time. Sorting is stable, so within one attempt count the
+    library's own order survives.
+    """
+    return sorted(queue, key=attempts)
 
 
 def track_key(row: "dict[str, Any]") -> str:
@@ -238,6 +270,9 @@ def run_import(
     delivered: "list[dict[str, Any]]" = []
 
     def save_queue() -> None:
+        # Rotating in place, not just on the way out: a run killed by a spent
+        # quota still leaves the file in the order the next run should use.
+        queue[:] = order_queue(queue)
         _write(queue_path, QUEUE_FIELDS, queue)
 
     def flush() -> None:
@@ -281,16 +316,19 @@ def run_import(
         delivered.extend(r for r in queue if r["status"] == "matched" and r["spotify_uri"])
         flush()
 
-        # Never-searched tracks go first. Spotify's budget is spent per
-        # request, not per track, and re-examining a known near miss costs the
-        # same three searches as a track nobody has looked at yet -- but only
-        # one of the two can put something in the playlist. On a resume after
-        # a spent quota that ordering is the difference between progress and
-        # paying full price to reconfirm verdicts already recorded.
-        todo = [r for r in queue if r["status"] == PENDING]
-        todo += [r for r in queue if r["status"] not in (PENDING, "matched")]
+        # Least-tried first. Spotify's budget is spent per request, not per
+        # track, and re-examining a known near miss costs the same three
+        # searches as a track nobody has looked at yet -- but only one of the
+        # two can put something in the playlist. On a resume after a spent
+        # quota that ordering is the difference between progress and paying
+        # full price to reconfirm verdicts already recorded.
+        todo = order_queue([r for r in queue if r["status"] != "matched"])
         for count, item in enumerate(todo, start=1):
+            # Counted before the search, and before _record_match overwrites
+            # the status the legacy inference reads.
+            spent = attempts(item) + 1
             _record_match(item, find_match(item, client, min_score))
+            item["attempts"] = str(spent)
             tally["searched"] += 1
             if on_track:
                 on_track(count, len(todo), item)

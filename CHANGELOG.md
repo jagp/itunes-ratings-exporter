@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The queue records an `attempts` count per track and is stored least-tried
+  first. Ordering was previously computed per run and thrown away, leaving the
+  file in library order; it is now persisted, so the work list on disk is
+  always the order the next run will use — including when a run is killed
+  mid-way by a spent quota. A track that is tried and stays unresolved sinks
+  below everything tried fewer times, so successive runs rotate through the
+  backlog instead of re-attacking the same head of the list.
+- A queue written before the column existed has its attempts inferred from
+  status (`pending` → 0, anything else → 1) rather than being re-sorted as
+  though every row were untried.
+
+### Measured
+
+- A resume on 2026-08-05 spent **448 requests at 2/s and completed without a
+  `429`**, importing 205 tracks and draining every one of the 233 `pending`
+  entries. The queue/log invariant held across the quota stop and the resume
+  (121 + 705 = 826, no overlap).
+- **This still does not separate the two hypotheses below.** The run was at the
+  *same* 2/s pace as the one that failed, and stopped at a *lower* request
+  count (448 vs. the ~1,000 that tripped the `429`), so both a daily budget and
+  a rate limit predict it succeeds. It confirms only that the ceiling resets
+  after roughly a day — which was never in doubt. Separating them still
+  requires a run at a materially different `--rate`.
+
 ## 1.1.0 — 2026-08-03
 
 Adds Spotify import. The exporter's CSV schema was always intended to be
