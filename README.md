@@ -4,12 +4,12 @@ Makes your iTunes ratings/plays metadata portable.
 
 Reads `iTunes Music Library.xml` (classic iTunes for Windows) and exports:
 
-| File | Contents |
-| --- | --- |
-| `tracks.csv` | Every track: title, artist, album, rating, play count, duration, file path, IDs |
-| `rated.csv` | Only tracks with a rating you set yourself (computed ratings excluded) |
-| `playlists.csv` | Your playlists, one row per track membership |
-| `library.json` | Everything in one structured, versioned file |
+| File            | Contents                                                                        |
+| --------------- | ------------------------------------------------------------------------------- |
+| `tracks.csv`    | Every track: title, artist, album, rating, play count, duration, file path, IDs |
+| `rated.csv`     | Only tracks with a rating you set yourself (computed ratings excluded)          |
+| `playlists.csv` | Your playlists, one row per track membership                                    |
+| `library.json`  | Everything in one structured, versioned file                                    |
 
 ## Setup
 
@@ -56,19 +56,19 @@ in `~/.itunes-ratings-exporter/spotify-token.json`, so later runs are silent.
 
 ### Options
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `--csv PATH` | `export/rated.csv` | Input CSV |
-| `--name NAME` | `iTunes Ratings <today>` | Playlist name |
-| `--min-stars N` | `4` | Only import tracks rated at least N stars |
-| `--limit N` | all | Import at most N tracks — good for a trial run |
-| `--public` | off | Create a public playlist |
-| `--dry-run` | off | Match and report, but create nothing |
-| `--min-score F` | `0.72` | Match acceptance threshold, `0.0`–`1.0` |
-| `--client-id ID` | `$SPOTIFY_CLIENT_ID` | Spotify app client ID |
-| `--restart` | off | Rebuild the work queue from the input CSV |
-| `--rate F` | `2.0` | Requests per second to Spotify; `0` disables pacing |
-| `--quiet` | off | Print totals only, not every track |
+| Option           | Default                  | Meaning                                             |
+| ---------------- | ------------------------ | --------------------------------------------------- |
+| `--csv PATH`     | `export/rated.csv`       | Input CSV                                           |
+| `--name NAME`    | `iTunes Ratings <today>` | Playlist name                                       |
+| `--min-stars N`  | `4`                      | Only import tracks rated at least N stars           |
+| `--limit N`      | all                      | Import at most N tracks — good for a trial run      |
+| `--public`       | off                      | Create a public playlist                            |
+| `--dry-run`      | off                      | Match and report, but create nothing                |
+| `--min-score F`  | `0.72`                   | Match acceptance threshold, `0.0`–`1.0`             |
+| `--client-id ID` | `$SPOTIFY_CLIENT_ID`     | Spotify app client ID                               |
+| `--restart`      | off                      | Rebuild the work queue from the input CSV           |
+| `--rate F`       | `2.0`                    | Requests per second to Spotify; `0` disables pacing |
+| `--quiet`        | off                      | Print totals only, not every track                  |
 
 A first run worth trying:
 
@@ -95,10 +95,10 @@ A large library takes thousands of searches, and Spotify's rolling quota can
 run out partway. Rather than keeping a report and working out what to redo,
 the import keeps a work list and drains it. Two files sit beside the input CSV:
 
-| File | Contents |
-| --- | --- |
+| File                       | Contents                                           |
+| -------------------------- | -------------------------------------------------- |
 | `spotify_import_queue.csv` | Tracks **not yet in Spotify** — the work remaining |
-| `spotify_import_log.csv` | Tracks **confirmed in the playlist** — append-only |
+| `spotify_import_log.csv`   | Tracks **confirmed in the playlist** — append-only |
 
 A track is in exactly one of them, so `queue + log` is always your whole
 library, and the queue's line count is literally what is left to do. The
@@ -161,7 +161,7 @@ settle it. Either way the practical answer is the same — re-run the next day,
 which the queue makes painless — and an app on Spotify's default development
 quota can apply for extended quota to raise the ceiling.
 
-Because the ceiling is spent per *request* under either explanation, a resume
+Because the ceiling is spent per _request_ under either explanation, a resume
 searches never-seen tracks before retrying tracks it has already judged: a
 recorded near miss costs the same three searches as an unseen track but cannot
 add anything to the playlist.

@@ -73,7 +73,7 @@ has yet survived a real one.
 - Cached tokens record their scopes and force a fresh consent when the cache
   cannot cover what the run needs. A refreshed token missing a scope fails as a
   bare 403 with no indication that re-consenting is the fix. Coverage is tested
-  by containment rather than string equality: a cache holding *more* scopes
+  by containment rather than string equality: a cache holding _more_ scopes
   than the run requires is perfectly usable, and comparing for equality dragged
   the user through a browser consent to end up with strictly fewer permissions
   than they already had. Scope strings are unordered, so equality was fragile
