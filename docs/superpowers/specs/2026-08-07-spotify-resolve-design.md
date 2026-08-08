@@ -33,7 +33,7 @@ recorded in the queue row* — resolving them needs no new searches at all.
 A terminal prompt loop: new subcommand
 
 ```
-python -m itunes_ratings_exporter spotify-resolve [--csv PATH] [--min-score F]
+python -m itunes_ratings_exporter spotify-resolve [--csv PATH]
     [--client-id ID] [--rate F] [--include-unavailable]
 ```
 

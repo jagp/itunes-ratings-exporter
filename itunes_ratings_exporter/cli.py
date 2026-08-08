@@ -371,7 +371,10 @@ def spotify_resolve_main(argv: "list[str]", client=None) -> int:
 
     todo = resolvable(queue, args.include_unavailable)
     if not todo:
-        print("Nothing to resolve -- every queued track is either matched or pending.")
+        print(
+            "Nothing to resolve -- every queued track is matched, pending, or "
+            "marked unavailable (revisit those with --include-unavailable)."
+        )
         return 0
 
     def get_client():
