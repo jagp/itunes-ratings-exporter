@@ -394,9 +394,10 @@ def test_a_resume_searches_unseen_tracks_before_retrying_near_misses(tmp_path):
     assert any("Creep" in q for q in client.queries)
 
 
-def test_reordering_the_search_does_not_reorder_the_queue_file(tmp_path):
-    # The queue is the user's view of what is left; it should still read in
-    # library order even though the run works through it out of order.
+def test_a_tried_track_sinks_below_one_that_has_not_been_tried(tmp_path):
+    # The rotation is persisted, not just applied to a run's iteration order:
+    # the file itself has to come out in the order the next run should use, so
+    # that a run killed by a spent quota still leaves a correct work list.
     csv_path, queue_path, _ = paths(tmp_path)
     _write(
         queue_path,
@@ -408,6 +409,7 @@ def test_reordering_the_search_does_not_reorder_the_queue_file(tmp_path):
                 "artist": "Radiohead",
                 "duration_ms": "238000",
                 "status": "rejected",
+                "attempts": "1",
             },
             {
                 "persistent_id": "3",
@@ -415,9 +417,43 @@ def test_reordering_the_search_does_not_reorder_the_queue_file(tmp_path):
                 "artist": "Radiohead",
                 "duration_ms": "228000",
                 "status": PENDING,
+                "attempts": "0",
             },
         ],
     )
     # A catalogue with nothing in it, so neither track leaves the queue.
     do_import(tmp_path, FakeClient({}), csv_path=csv_path)
-    assert [r["persistent_id"] for r in read_queue(queue_path)] == ["2", "3"]
+    left = read_queue(queue_path)
+    # Idioteque was searched once and Creep twice, so Idioteque now leads.
+    assert [r["persistent_id"] for r in left] == ["3", "2"]
+    assert [r["attempts"] for r in left] == ["1", "2"]
+
+
+def test_the_rotation_cycles_rather_than_re_attacking_the_same_head(tmp_path):
+    # Three runs over a queue nothing ever matches: each run must start on the
+    # track the previous run left least-tried, so the backlog rotates evenly
+    # instead of burning every run's budget on the same first track.
+    csv_path, queue_path, _ = paths(tmp_path)
+    for _ in range(3):
+        client = FakeClient({})
+        do_import(tmp_path, client, csv_path=csv_path)
+
+    left = read_queue(queue_path)
+    # Nothing resolved, so all three are still queued and evenly tried.
+    assert {r["attempts"] for r in left} == {"3"}
+    assert len(left) == 3
+
+
+def test_attempts_are_inferred_for_a_queue_written_before_the_column(tmp_path):
+    # An existing queue file has no attempts column. Re-sorting it as though
+    # every row were untried would send already-tried work back to the front.
+    from itunes_ratings_exporter.spotify.importer import attempts, order_queue
+
+    legacy_tried = {"title": "Creep", "status": "rejected"}
+    legacy_untried = {"title": "Idioteque", "status": PENDING}
+    assert attempts(legacy_tried) == 1
+    assert attempts(legacy_untried) == 0
+    assert [r["title"] for r in order_queue([legacy_tried, legacy_untried])] == [
+        "Idioteque",
+        "Creep",
+    ]
