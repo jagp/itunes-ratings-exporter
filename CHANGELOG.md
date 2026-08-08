@@ -4,6 +4,27 @@
 
 ### Added
 
+- A `spotify-resolve` subcommand: an interactive terminal UI for the tracks
+  the import could not place. Near misses whose recorded candidate re-scores
+  ≥ 0.85 on both title and artist are reviewed as one list and accepted in
+  bulk; the rest are walked through one side-by-side card at a time, with
+  keys to accept the recorded candidate, pick from freshly searched
+  alternatives, mark a track unavailable, keep, or quit. Only fetching fresh
+  candidates talks to Spotify — authorization is deferred until the first
+  time it is asked for — and every decision is written to the queue as it is
+  made. Accepted tracks are delivered by the next `spotify-import` run
+  through its existing path.
+- A durable `unavailable` status: a human's verdict that a track is not on
+  Spotify. The row keeps its line in the queue file, but the import's work
+  loop skips it, so resumes stop spending search quota proving the same
+  absence. `spotify-resolve --include-unavailable` revisits them.
+- The queue records each candidate's album and duration
+  (`spotify_album`, `spotify_duration_ms`), and rejected rows now keep the
+  candidate's URI, so a near miss can be inspected and accepted without
+  repeating the searches that found it. Delivery is still gated on the
+  matched status *and* the URI, so a rejected row cannot reach the playlist
+  by accident.
+
 - The queue records an `attempts` count per track and is stored least-tried
   first. Ordering was previously computed per run and thrown away, leaving the
   file in library order; it is now persisted, so the work list on disk is

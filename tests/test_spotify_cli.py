@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from itunes_ratings_exporter.cli import main, spotify_import_main
+from itunes_ratings_exporter.cli import main, spotify_import_main, spotify_resolve_main
 from itunes_ratings_exporter.spotify.importer import (
     default_log_path,
     default_queue_path,
@@ -187,3 +187,41 @@ def test_main_routes_the_subcommand(tmp_path, capsys, monkeypatch):
     csv_path = write_csv(tmp_path)
     # Reaching the auth failure proves the subcommand was routed and parsed.
     assert main(["spotify-import", "--csv", str(csv_path)]) == 5
+
+
+# --- spotify-resolve ----------------------------------------------------
+
+
+def test_resolve_without_a_queue_says_so(tmp_path, capsys):
+    code = spotify_resolve_main(["--csv", str(tmp_path / "rated.csv")])
+    assert code == 0
+    assert "Run 'spotify-import' first" in capsys.readouterr().out
+
+
+def test_resolve_accepts_a_near_miss_and_import_delivers_it(
+    tmp_path, capsys, monkeypatch
+):
+    """The full loop: import rejects, resolve accepts, re-import delivers."""
+    csv_path = write_csv(tmp_path)
+    catalogue = full_catalogue()
+    # Right song, wrong artist credit: rejected, but with the URI recorded.
+    catalogue["Creep"] = spotify_track(
+        "Creep", "Stone Temple Pilots", 238_000, "spotify:track:cr"
+    )
+    spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0"], client=FakeClient(catalogue)
+    )
+    answers = iter(["a"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    code = spotify_resolve_main(["--csv", str(csv_path)], client=FakeClient())
+    assert code == 0
+    assert "1 accepted" in capsys.readouterr().out
+    resumed = FakeClient(catalogue)
+    spotify_import_main(["--csv", str(csv_path), "--min-stars", "0"], client=resumed)
+    assert "spotify:track:cr" in resumed.added
+    assert read_queue(default_queue_path(csv_path)) == []
+
+
+def test_resolve_dispatches_from_main(tmp_path, capsys):
+    assert main(["spotify-resolve", "--csv", str(tmp_path / "rated.csv")]) == 0
+    assert "resolve" in capsys.readouterr().out

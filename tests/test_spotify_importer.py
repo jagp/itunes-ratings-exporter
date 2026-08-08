@@ -5,6 +5,7 @@ import pytest
 from itunes_ratings_exporter.spotify.client import SpotifyApiError
 from itunes_ratings_exporter.spotify.importer import (
     PENDING,
+    UNAVAILABLE,
     QUEUE_FIELDS,
     ImportInputError,
     _write,
@@ -219,9 +220,11 @@ def test_unresolved_tracks_stay_queued(tmp_path):
     assert (summary["rejected"], summary["not_found"]) == (1, 1)
     left = {r["title"]: r for r in read_queue(queue_path)}
     assert set(left) == {"Creep", "Idioteque"}
-    # A rejected row keeps the near miss but never a URI to act on.
+    # A rejected row keeps the near miss *and* its URI, so spotify-resolve
+    # can accept it without re-searching. Status gates delivery, not the URI.
     assert left["Creep"]["spotify_artist"] == "Stone Temple Pilots"
-    assert left["Creep"]["spotify_uri"] == ""
+    assert left["Creep"]["spotify_uri"] == "spotify:track:x"
+    assert left["Creep"]["status"] == "rejected"
     assert left["Idioteque"]["score"] == ""
 
 
@@ -457,3 +460,42 @@ def test_attempts_are_inferred_for_a_queue_written_before_the_column(tmp_path):
         "Idioteque",
         "Creep",
     ]
+
+
+# --- resolve statuses ---------------------------------------------------
+
+
+def test_unavailable_rows_are_left_alone(tmp_path):
+    """A human's 'not on Spotify' verdict survives any number of resumes."""
+    csv_path, queue_path, _ = paths(tmp_path)
+    client = FakeClient(full_catalogue())
+    do_import(tmp_path, FakeClient({}), csv_path=csv_path)  # everything misses
+    queue = read_queue(queue_path)
+    queue[0]["status"] = UNAVAILABLE
+    _write(queue_path, QUEUE_FIELDS, queue)
+    summary = do_import(tmp_path, client, csv_path=csv_path)
+    assert summary["unavailable"] == 1
+    assert summary["searched"] == 2  # the unavailable track was not retried
+    left = {r["title"]: r["status"] for r in read_queue(queue_path)}
+    assert left == {queue[0]["title"]: UNAVAILABLE}
+
+
+def test_rejected_rows_with_a_uri_are_not_delivered(tmp_path):
+    """The URI kept for spotify-resolve must not leak into the playlist."""
+    csv_path, queue_path, _ = paths(tmp_path)
+    catalogue = full_catalogue()
+    catalogue["Creep"] = spotify_track(
+        "Creep", "Stone Temple Pilots", 238_000, "spotify:track:x"
+    )
+    client = FakeClient(catalogue)
+    do_import(tmp_path, client, csv_path=csv_path)
+    assert "spotify:track:x" not in client.added
+    # ...until a resolve session flips the verdict; then a plain re-run
+    # delivers it before spending any searches.
+    queue = read_queue(queue_path)
+    creep = next(r for r in queue if r["title"] == "Creep")
+    creep["status"] = "matched"
+    _write(queue_path, QUEUE_FIELDS, queue)
+    resumed = FakeClient(catalogue)
+    do_import(tmp_path, resumed, csv_path=csv_path)
+    assert "spotify:track:x" in resumed.added

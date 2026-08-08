@@ -23,6 +23,7 @@ _ENABLE_XML_HELP = (
 )
 
 SPOTIFY_IMPORT = "spotify-import"
+SPOTIFY_RESOLVE = "spotify-resolve"
 
 
 def default_library_path() -> Path:
@@ -40,6 +41,8 @@ def main(argv: "list[str] | None" = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == SPOTIFY_IMPORT:
         return spotify_import_main(args[1:])
+    if args and args[0] == SPOTIFY_RESOLVE:
+        return spotify_resolve_main(args[1:])
     return export_main(args)
 
 
@@ -288,10 +291,12 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
 
     if summary["added"]:
         print(f"Added {summary['added']} tracks to {where}")
+    breakdown = "{rejected} near misses, {not_found} not found".format(**summary)
+    if summary.get("unavailable"):
+        breakdown += ", {unavailable} marked unavailable".format(**summary)
     print(
         "The playlist now holds {in_playlist} of {total} tracks; "
-        "{queued} still queued ({rejected} near misses, "
-        "{not_found} not found).".format(**summary)
+        "{queued} still queued ({breakdown}).".format(breakdown=breakdown, **summary)
     )
     if summary["queued"]:
         # The queue is the durable to-do list, so the next step is always the
@@ -300,4 +305,108 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
         print("Re-run the same command to continue.")
     else:
         print(f"Queue empty -- the import is complete. Log: {log_path}")
+    return 0
+
+
+def _spotify_resolve_parser() -> argparse.ArgumentParser:
+    from .spotify.client import DEFAULT_REQUESTS_PER_SECOND
+
+    ap = argparse.ArgumentParser(
+        prog="itunes-ratings-exporter " + SPOTIFY_RESOLVE,
+        description="Decide the tracks spotify-import could not place: accept "
+        "near misses, pick from fresh candidates, or mark tracks unavailable. "
+        "Only fetching fresh candidates talks to Spotify.",
+    )
+    ap.add_argument(
+        "--csv",
+        default=str(Path("export") / "rated.csv"),
+        help="The import's input CSV; the queue lives beside it",
+    )
+    ap.add_argument(
+        "--client-id",
+        default=os.environ.get("SPOTIFY_CLIENT_ID", ""),
+        help="Spotify app client ID (default: $SPOTIFY_CLIENT_ID). Only "
+        "needed if you ask for fresh candidates.",
+    )
+    ap.add_argument(
+        "--rate",
+        type=float,
+        default=DEFAULT_REQUESTS_PER_SECOND,
+        help="Requests per second when fetching candidates (default: %(default)s)",
+    )
+    ap.add_argument(
+        "--include-unavailable",
+        action="store_true",
+        help="Also revisit tracks previously marked unavailable",
+    )
+    return ap
+
+
+def spotify_resolve_main(argv: "list[str]", client=None) -> int:
+    """Walk the unresolved queue rows and record the user's decisions.
+
+    ``client`` exists so tests can inject a fake API. Normal runs authorize
+    lazily -- the first time the user asks for fresh candidates -- because
+    every other action works from what the queue already recorded.
+    """
+    from .spotify.auth import get_access_token
+    from .spotify.client import SpotifyClient
+    from .spotify.importer import ImportInputError, default_queue_path, read_queue
+    from .spotify.resolver import resolvable, run_resolve
+
+    args = _spotify_resolve_parser().parse_args(argv)
+    queue_path = default_queue_path(args.csv)
+
+    try:
+        queue = read_queue(queue_path)
+    except ImportInputError as exc:
+        print(str(exc), file=sys.stderr)
+        return 4
+    if not queue:
+        print(
+            f"No queue at {queue_path}. Run '{SPOTIFY_IMPORT}' first; resolve "
+            "works on what it leaves behind."
+        )
+        return 0
+
+    todo = resolvable(queue, args.include_unavailable)
+    if not todo:
+        print("Nothing to resolve -- every queued track is either matched or pending.")
+        return 0
+
+    def get_client():
+        if client is not None:
+            return client
+        return SpotifyClient(
+            get_access_token(args.client_id),
+            announce=lambda msg: print(msg, file=sys.stderr, flush=True),
+            requests_per_second=args.rate,
+        )
+
+    try:
+        tally = run_resolve(
+            queue,
+            queue_path,
+            get_client,
+            include_unavailable=args.include_unavailable,
+        )
+    except OSError as exc:
+        print(f"Could not write to {queue_path}: {exc}", file=sys.stderr)
+        return 3
+    except (KeyboardInterrupt, EOFError):
+        # Decisions are saved as they are made, so a ^C loses nothing.
+        print("\nStopped. Everything decided so far is saved in the queue.")
+        return 0
+
+    print(
+        "\nResolved this session: {accepted} accepted, {unavailable} marked "
+        "unavailable, {requeued} requeued, {kept} left as they were.".format(
+            **{k: tally.get(k, 0) for k in ("accepted", "unavailable", "requeued", "kept")}
+        )
+    )
+    if tally.get("accepted"):
+        print(
+            "Accepted tracks are queued as matches -- run '{}' to add them "
+            "to the playlist.".format(SPOTIFY_IMPORT)
+        )
     return 0

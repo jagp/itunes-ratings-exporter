@@ -229,6 +229,26 @@ def find_match(row, client, min_score: float = DEFAULT_MIN_SCORE) -> MatchResult
     return MatchResult("rejected", best_candidate, best_score)
 
 
+def top_candidates(row, client, n: int = 5) -> "list[tuple[dict[str, Any], MatchScore]]":
+    """Every candidate the queries surface, best first, one entry per URI.
+
+    ``find_match`` stops at the first acceptable candidate because the import
+    only needs a verdict. Manual resolution needs the field: a human choosing
+    from a list can recognise the right recording at a score no automatic
+    threshold could safely accept.
+    """
+    seen: "dict[str, tuple[dict[str, Any], MatchScore]]" = {}
+    for query in search_queries(row):
+        for candidate in client.search_tracks(query):
+            uri = candidate.get("uri", "")
+            score = score_candidate(row, candidate)
+            kept = seen.get(uri)
+            if kept is None or score.total > kept[1].total:
+                seen[uri] = (candidate, score)
+    ranked = sorted(seen.values(), key=lambda pair: pair[1].total, reverse=True)
+    return ranked[:n]
+
+
 def _as_int(value: Any) -> Optional[int]:
     try:
         return int(value)

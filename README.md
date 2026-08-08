@@ -101,8 +101,10 @@ the import keeps a work list and drains it. Two files sit beside the input CSV:
 | `spotify_import_log.csv` | Tracks **confirmed in the playlist** — append-only |
 
 A track is in exactly one of them, so `queue + log` is always your whole
-library, and the queue's line count is literally what is left to do. The
-original export is only ever read; the queue is a copy.
+library, and the queue's line count is what is left to do — minus any tracks
+you have marked unavailable (see *Resolving the remainder* below), which keep
+their line but are no longer work. The original export is only ever read; the
+queue is a copy.
 
 That makes every run a resume. There is no flag — you just run the same
 command again:
@@ -139,6 +141,55 @@ playlist.
 
 `--restart` rebuilds the queue from the export, discarding matching progress.
 The log is kept, so tracks already in the playlist are not imported twice.
+
+### Resolving the remainder
+
+After the import has taken every safe match, the queue still holds the near
+misses and the not-founds. Those are decisions for a human, and there is a
+UI for making them:
+
+```
+python -m itunes_ratings_exporter spotify-resolve [--csv PATH]
+```
+
+A note on why these tracks were left behind: the matcher never reads the
+album field — scoring is title, artist, and runtime. So tracks ripped onto
+burned mix CDs, whose "album" is really a playlist name, were not rejected
+for that; they usually failed on runtime drift or scored a hair under the
+threshold. Which means the right candidate is very often already recorded in
+the queue row, and accepting it costs **zero** Spotify requests.
+
+Resolution runs in two passes:
+
+1. **Bulk review.** Rejected tracks whose recorded candidate still scores at
+   least 0.85 on both title and artist are listed together — these are almost
+   certainly right, and one confirmation accepts them all (`skip 3,7` leaves
+   individual rows out).
+2. **Walkthrough.** Everything else appears one card at a time, iTunes and
+   Spotify metadata side by side:
+
+   ```
+   [ 12/143] rejected 0.680
+     iTunes : Thunder Road -- Bruce Springsteen
+              album: Summer Mix 2003              4:49
+     Spotify: Thunder Road -- Bruce Springsteen
+              album: Born to Run                  4:48
+     [a]ccept  [c]andidates  [u]navailable  [k]eep  [q]uit >
+   ```
+
+   `[a]` accepts the recorded candidate. `[c]` searches Spotify afresh and
+   lists the top scored alternatives to pick by number — the only key that
+   spends requests, so authorization happens the first time you press it and
+   a session that never does stays entirely offline. `[u]` records that the
+   track simply is not on Spotify: it keeps its line in the queue file, but
+   the import stops spending searches on it forever after (revisit these
+   with `--include-unavailable`, where `[r]equeue` sends one back to the
+   search loop). `[k]` defers, `[q]` quits — every decision is written to
+   the queue as it is made, so quitting or crashing loses nothing.
+
+Accepted tracks become matches in the queue; run `spotify-import` again and
+its normal delivery path adds them to the playlist before anything else is
+searched.
 
 ### Quota
 

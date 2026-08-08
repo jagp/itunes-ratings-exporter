@@ -43,12 +43,21 @@ QUEUE_FIELDS = [
     "spotify_uri",
     "spotify_title",
     "spotify_artist",
+    "spotify_album",
+    "spotify_duration_ms",
     "attempts",
 ]
 
 LOG_FIELDS = QUEUE_FIELDS + ["added_to"]
 
 PENDING = "pending"
+
+# A human's verdict, not the matcher's: the track is not on Spotify, so no
+# amount of re-searching will place it. Rows keep their place in the queue
+# file -- queue + log stays the whole library -- but the import's work loop
+# skips them, which is what stops every resume from spending quota proving
+# the same absence again. spotify-resolve sets and unsets it.
+UNAVAILABLE = "unavailable"
 
 
 class ImportInputError(RuntimeError):
@@ -235,9 +244,15 @@ def _record_match(item: "dict[str, Any]", match) -> None:
     candidate = match.candidate or {}
     item["status"] = match.status
     item["score"] = "" if match.score is None else "{:.3f}".format(match.score.total)
-    item["spotify_uri"] = candidate.get("uri", "") if match.status == "matched" else ""
+    # The URI is kept on rejected rows too: it is what lets spotify-resolve
+    # accept a near miss without repeating the searches that found it.
+    # Delivery is gated on status *and* URI, so a rejected row with a URI
+    # cannot reach the playlist by accident.
+    item["spotify_uri"] = candidate.get("uri", "")
     item["spotify_title"] = candidate.get("name", "")
     item["spotify_artist"] = ", ".join(candidate_artists(candidate))
+    item["spotify_album"] = (candidate.get("album") or {}).get("name", "")
+    item["spotify_duration_ms"] = str(candidate.get("duration_ms") or "")
 
 
 def run_import(
@@ -322,7 +337,9 @@ def run_import(
         # two can put something in the playlist. On a resume after a spent
         # quota that ordering is the difference between progress and paying
         # full price to reconfirm verdicts already recorded.
-        todo = order_queue([r for r in queue if r["status"] != "matched"])
+        todo = order_queue(
+            [r for r in queue if r["status"] not in ("matched", UNAVAILABLE)]
+        )
         for count, item in enumerate(todo, start=1):
             # Counted before the search, and before _record_match overwrites
             # the status the legacy inference reads.
@@ -348,6 +365,7 @@ def run_import(
             "queued": len(queue),
             "rejected": sum(1 for r in queue if r["status"] == "rejected"),
             "not_found": sum(1 for r in queue if r["status"] == "not_found"),
+            "unavailable": sum(1 for r in queue if r["status"] == UNAVAILABLE),
             "playlist_url": playlist["url"],
             "dry_run": dry_run,
         }
