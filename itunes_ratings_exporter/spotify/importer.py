@@ -132,9 +132,21 @@ def _write(path: "Union[str, Path]", fields: "list[str]", rows: "list[dict[str, 
 
 
 def _append(path: "Union[str, Path]", fields: "list[str]", rows: "list[dict[str, Any]]") -> None:
-    """Append rows, writing a header only when the file is new."""
+    """Append rows, writing a header only when the file is new.
+
+    An existing file's header wins over ``fields``. The log is append-only
+    and may predate newer queue columns; writing more values than its header
+    names shifts the extras into the wrong columns for every later reader --
+    which once put an album name where playlist_from_log expected an id.
+    New columns simply go unrecorded in old files.
+    """
     target = Path(path)
     new = not target.is_file() or target.stat().st_size == 0
+    if not new:
+        with open(target, newline="", encoding="utf-8") as f:
+            existing_header = next(csv.reader(f), None)
+        if existing_header:
+            fields = existing_header
     with open(target, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         if new:

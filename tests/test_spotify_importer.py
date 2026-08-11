@@ -8,7 +8,9 @@ from itunes_ratings_exporter.spotify.importer import (
     PENDING,
     UNAVAILABLE,
     QUEUE_FIELDS,
+    LOG_FIELDS,
     ImportInputError,
+    _append,
     _write,
     build_queue,
     default_log_path,
@@ -513,3 +515,23 @@ def test_local_rows_are_left_alone_and_counted(tmp_path):
     summary = do_import(tmp_path, FakeClient(full_catalogue()), csv_path=csv_path)
     assert summary["local"] == 3
     assert summary["searched"] == 0  # settled rows cost nothing
+
+
+def test_append_respects_an_existing_older_header(tmp_path):
+    """New-schema rows appended to an old log must not shift columns.
+
+    The log is append-only, so its header can lag QUEUE_FIELDS by several
+    columns. Extra values beyond the header land under the wrong names for
+    every later reader -- the bug that once fed an album name to
+    playlist_from_log as a playlist id.
+    """
+    log_path = tmp_path / "spotify_import_log.csv"
+    old_fields = [f for f in LOG_FIELDS
+                  if f not in ("spotify_album", "spotify_duration_ms", "attempts")]
+    _write(log_path, old_fields, [])
+    row = {k: "x-" + k for k in LOG_FIELDS}
+    row["added_to"] = "pl1"
+    _append(log_path, LOG_FIELDS, [row])
+    logged = read_log(log_path)[-1]
+    assert logged["added_to"] == "pl1"
+    assert "spotify_album" not in logged  # unrecorded, not misfiled
