@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Union
 
-from .importer import PENDING, QUEUE_FIELDS, UNAVAILABLE, _write
+from .importer import LOCAL, PENDING, QUEUE_FIELDS, SETTLED, UNAVAILABLE, _write
 from .matcher import (
     MatchScore,
     artist_similarity,
@@ -90,8 +90,13 @@ def is_tier1(row: "dict[str, Any]") -> bool:
 def resolvable(
     queue: "list[dict[str, Any]]", include_unavailable: bool = False
 ) -> "list[dict[str, Any]]":
-    """The rows a resolve session should look at, in queue order."""
-    wanted = _RESOLVABLE + ((UNAVAILABLE,) if include_unavailable else ())
+    """The rows a resolve session should look at, in queue order.
+
+    ``include_unavailable`` reopens the settled verdicts too -- both
+    unavailable and locally-managed rows -- for the session that wants to
+    reconsider them.
+    """
+    wanted = _RESOLVABLE + (SETTLED if include_unavailable else ())
     return [r for r in queue if r.get("status") in wanted]
 
 
@@ -115,6 +120,11 @@ def accept_candidate(
 
 def mark_unavailable(row: "dict[str, Any]") -> None:
     row["status"] = UNAVAILABLE
+
+
+def mark_local(row: "dict[str, Any]") -> None:
+    """The owner's circuit breaker: stop searching, manage this one locally."""
+    row["status"] = LOCAL
 
 
 def requeue(row: "dict[str, Any]") -> None:
@@ -272,7 +282,7 @@ def run_resolve(
     # else) can swap builtins.input/print and be honored.
     input_fn = input_fn or input
     print_fn = print_fn or print
-    tally = {"accepted": 0, "unavailable": 0, "requeued": 0, "kept": 0}
+    tally = {"accepted": 0, "unavailable": 0, "local": 0, "requeued": 0, "kept": 0}
 
     def save() -> None:
         _write(queue_path, QUEUE_FIELDS, queue)
@@ -289,22 +299,23 @@ def run_resolve(
     if tier1:
         tally["accepted"] += _resolve_tier1(tier1, save, input_fn, print_fn)
 
-    cards = [r for r in todo if r.get("status") in _RESOLVABLE + (UNAVAILABLE,)]
+    cards = [r for r in todo if r.get("status") in _RESOLVABLE + SETTLED]
     if cards:
         print_fn("\nTier 2 -- {} track(s) to look at one by one.".format(len(cards)))
     for position, row in enumerate(cards, start=1):
         print_fn(_card(row, position, len(cards)))
         has_candidate = bool((row.get("spotify_uri") or "").strip())
+        settled = row.get("status") in SETTLED
         keys = []
         if has_candidate:
             keys.append("[a]ccept")
         keys.append("[c]andidates")
-        if row.get("status") == UNAVAILABLE:
-            # Revisiting via --include-unavailable: the useful verbs are
-            # "give it back to the search loop" and "leave it unavailable".
+        if settled:
+            # Revisiting a settled verdict: the useful verb is "give it back
+            # to the search loop" -- or leave it as it is with [k]eep.
             keys.append("[r]equeue")
         else:
-            keys.append("[u]navailable")
+            keys += ["[u]navailable", "[l]ocal"]
         keys += ["[k]eep", "[q]uit"]
         legend = "  " + "  ".join(keys) + " > "
         while True:
@@ -316,10 +327,13 @@ def run_resolve(
                 if not _pick_candidate(row, client, input_fn, print_fn):
                     continue
                 tally["accepted"] += 1
-            elif answer == "u" and row.get("status") != UNAVAILABLE:
+            elif answer == "u" and not settled:
                 mark_unavailable(row)
                 tally["unavailable"] += 1
-            elif answer == "r" and row.get("status") == UNAVAILABLE:
+            elif answer == "l" and not settled:
+                mark_local(row)
+                tally["local"] += 1
+            elif answer == "r" and settled:
                 requeue(row)
                 tally["requeued"] += 1
             elif answer == "k":

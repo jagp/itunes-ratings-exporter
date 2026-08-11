@@ -110,9 +110,9 @@ the import keeps a work list and drains it. Two files sit beside the input CSV:
 
 A track is in exactly one of them, so `queue + log` is always your whole
 library, and the queue's line count is what is left to do — minus any tracks
-you have marked unavailable (see *Resolving the remainder* below), which keep
-their line but are no longer work. The original export is only ever read; the
-queue is a copy.
+you have settled as *unavailable* or *locally managed* (see *Resolving the
+remainder* below), which keep their line but are no longer work. The original
+export is only ever read; the queue is a copy.
 
 That makes every run a resume. There is no flag — you just run the same
 command again:
@@ -188,16 +188,26 @@ Resolution runs in two passes:
    `[a]` accepts the recorded candidate. `[c]` searches Spotify afresh and
    lists the top scored alternatives to pick by number — the only key that
    spends requests, so authorization happens the first time you press it and
-   a session that never does stays entirely offline. `[u]` records that the
-   track simply is not on Spotify: it keeps its line in the queue file, but
-   the import stops spending searches on it forever after (revisit these
-   with `--include-unavailable`, where `[r]equeue` sends one back to the
-   search loop). `[k]` defers, `[q]` quits — every decision is written to
-   the queue as it is made, so quitting or crashing loses nothing.
+   a session that never does stays entirely offline. Two keys settle a track
+   for good: `[u]` records that it simply is not on Spotify, and `[l]`
+   records the owner's circuit breaker — *not available to stream, managed
+   locally* (your own files, e.g. via Spotify's Local Files). Either way the
+   row keeps its line in the queue file but the import stops spending
+   searches on it forever after (revisit settled verdicts with
+   `--include-unavailable`, where `[r]equeue` sends one back to the search
+   loop). `[k]` defers — ask me again next session. `[q]` quits — every
+   decision is written to the queue as it is made, so quitting or crashing
+   loses nothing.
 
 Accepted tracks become matches in the queue; run `spotify-import` again and
 its normal delivery path adds them to the playlist before anything else is
 searched.
+
+This is also what makes the process *finishable*: every track eventually
+ends `matched` (in the playlist), `unavailable` (the catalogue may fill in
+someday), or `local` (yours, outside streaming). When nothing workable
+remains, the import says so — the queue file itself stays as the permanent
+record of every verdict.
 
 ### Quota
 

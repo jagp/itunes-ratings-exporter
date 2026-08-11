@@ -225,3 +225,25 @@ def test_resolve_accepts_a_near_miss_and_import_delivers_it(
 def test_resolve_dispatches_from_main(tmp_path, capsys):
     assert main(["spotify-resolve", "--csv", str(tmp_path / "rated.csv")]) == 0
     assert "resolve" in capsys.readouterr().out
+
+
+def test_import_reports_complete_when_every_track_is_settled(tmp_path, capsys):
+    """The end state: nothing workable left, even though the queue file
+    still holds the settled lines."""
+    from itunes_ratings_exporter.spotify.importer import (
+        LOCAL, QUEUE_FIELDS, _write, read_queue)
+
+    csv_path = write_csv(tmp_path)
+    spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0"], client=FakeClient({}))
+    queue = read_queue(default_queue_path(csv_path))
+    for row in queue:
+        row["status"] = LOCAL
+    _write(default_queue_path(csv_path), QUEUE_FIELDS, queue)
+    capsys.readouterr()
+    code = spotify_import_main(
+        ["--csv", str(csv_path), "--min-stars", "0"], client=FakeClient({}))
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "the import is complete" in out
+    assert "Re-run" not in out

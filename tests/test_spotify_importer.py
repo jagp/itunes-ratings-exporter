@@ -4,6 +4,7 @@ import pytest
 
 from itunes_ratings_exporter.spotify.client import SpotifyApiError
 from itunes_ratings_exporter.spotify.importer import (
+    LOCAL,
     PENDING,
     UNAVAILABLE,
     QUEUE_FIELDS,
@@ -499,3 +500,16 @@ def test_rejected_rows_with_a_uri_are_not_delivered(tmp_path):
     resumed = FakeClient(catalogue)
     do_import(tmp_path, resumed, csv_path=csv_path)
     assert "spotify:track:x" in resumed.added
+
+
+def test_local_rows_are_left_alone_and_counted(tmp_path):
+    """Locally-managed tracks are settled: never searched, reported apart."""
+    csv_path, queue_path, _ = paths(tmp_path)
+    do_import(tmp_path, FakeClient({}), csv_path=csv_path)  # everything misses
+    queue = read_queue(queue_path)
+    for row in queue:
+        row["status"] = LOCAL
+    _write(queue_path, QUEUE_FIELDS, queue)
+    summary = do_import(tmp_path, FakeClient(full_catalogue()), csv_path=csv_path)
+    assert summary["local"] == 3
+    assert summary["searched"] == 0  # settled rows cost nothing

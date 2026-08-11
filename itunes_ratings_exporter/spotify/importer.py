@@ -59,6 +59,17 @@ PENDING = "pending"
 # the same absence again. spotify-resolve sets and unsets it.
 UNAVAILABLE = "unavailable"
 
+# The owner's terminal verdict: not available to stream, managed locally
+# instead (Spotify's Local Files, or simply the owner's own copies). The
+# distinction from UNAVAILABLE is intent -- unavailable records an absence
+# that a future catalogue might fill, local records a decision to stop
+# looking. Both keep their queue line and leave the work loop; together with
+# matched they are what lets an import of an owned library actually finish.
+LOCAL = "local"
+
+# Rows in these statuses are settled: still in the queue file, no longer work.
+SETTLED = (UNAVAILABLE, LOCAL)
+
 
 class ImportInputError(RuntimeError):
     """The input CSV is missing, unreadable, or the wrong shape."""
@@ -338,7 +349,7 @@ def run_import(
         # quota that ordering is the difference between progress and paying
         # full price to reconfirm verdicts already recorded.
         todo = order_queue(
-            [r for r in queue if r["status"] not in ("matched", UNAVAILABLE)]
+            [r for r in queue if r["status"] != "matched" and r["status"] not in SETTLED]
         )
         for count, item in enumerate(todo, start=1):
             # Counted before the search, and before _record_match overwrites
@@ -366,6 +377,7 @@ def run_import(
             "rejected": sum(1 for r in queue if r["status"] == "rejected"),
             "not_found": sum(1 for r in queue if r["status"] == "not_found"),
             "unavailable": sum(1 for r in queue if r["status"] == UNAVAILABLE),
+            "local": sum(1 for r in queue if r["status"] == LOCAL),
             "playlist_url": playlist["url"],
             "dry_run": dry_run,
         }

@@ -1,6 +1,7 @@
 import csv
 
 from itunes_ratings_exporter.spotify.importer import (
+    LOCAL,
     PENDING,
     QUEUE_FIELDS,
     UNAVAILABLE,
@@ -295,3 +296,23 @@ def test_pre_schema_queue_rows_fall_through_to_tier2(tmp_path):
     tally = run_resolve(queue, path, no_client,
                         input_fn=script.input, print_fn=script.print)
     assert tally["unavailable"] == 1
+
+
+# --- locally managed (the owner's circuit breaker) ----------------------
+
+
+def test_local_key_is_a_durable_verdict(tmp_path):
+    queue = [low_scoring_row()]
+    script = Script("l")
+    tally, saved = resolve(queue, tmp_path, script)
+    assert tally["local"] == 1
+    assert saved[0]["status"] == LOCAL
+
+
+def test_local_rows_are_settled_until_revisited(tmp_path):
+    queue = [queue_row(status=LOCAL)]
+    assert resolvable(queue) == []
+    script = Script("r")
+    tally, saved = resolve(queue, tmp_path, script, include_unavailable=True)
+    assert tally["requeued"] == 1
+    assert saved[0]["status"] == PENDING

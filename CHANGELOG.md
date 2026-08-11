@@ -4,6 +4,13 @@
 
 ### Added
 
+- A `local` status — *not available to stream / locally managed* — the
+  owner's terminal verdict beside `unavailable`. `spotify-resolve` sets it
+  with the `[l]` key; the import skips it like `unavailable` and reports it
+  separately. With it the import gains a reachable end state: when every
+  queued track is settled (`unavailable` or `local`), the run reports the
+  import complete instead of asking to be re-run forever.
+
 - Experience-tuned matcher readings, distilled from a real resolve session
   over a 121-track backlog: a blank artist field no longer vetoes a match
   (it is missing data, not disagreement — accepted only on near-exact title

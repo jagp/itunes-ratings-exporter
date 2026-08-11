@@ -296,15 +296,25 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
     breakdown = "{rejected} near misses, {not_found} not found".format(**summary)
     if summary.get("unavailable"):
         breakdown += ", {unavailable} marked unavailable".format(**summary)
+    if summary.get("local"):
+        breakdown += ", {local} locally managed".format(**summary)
     print(
         "The playlist now holds {in_playlist} of {total} tracks; "
         "{queued} still queued ({breakdown}).".format(breakdown=breakdown, **summary)
     )
-    if summary["queued"]:
+    # Settled rows (unavailable, locally managed) keep their queue line but
+    # are not work, so completion is "nothing workable", not "file empty".
+    workable = summary["queued"] - summary.get("unavailable", 0) - summary.get("local", 0)
+    if workable:
         # The queue is the durable to-do list, so the next step is always the
         # same command -- no flag, no bookkeeping.
         print(f"Still to do: {queue_path}")
         print("Re-run the same command to continue.")
+    elif summary["queued"]:
+        print(
+            "Every remaining track is settled (unavailable or locally "
+            f"managed) -- the import is complete. Log: {log_path}"
+        )
     else:
         print(f"Queue empty -- the import is complete. Log: {log_path}")
     return 0
@@ -339,7 +349,7 @@ def _spotify_resolve_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--include-unavailable",
         action="store_true",
-        help="Also revisit tracks previously marked unavailable",
+        help="Also revisit settled tracks (marked unavailable or locally managed)",
     )
     return ap
 
@@ -375,7 +385,7 @@ def spotify_resolve_main(argv: "list[str]", client=None) -> int:
     if not todo:
         print(
             "Nothing to resolve -- every queued track is matched, pending, or "
-            "marked unavailable (revisit those with --include-unavailable)."
+            "settled (revisit settled verdicts with --include-unavailable)."
         )
         return 0
 
@@ -405,8 +415,10 @@ def spotify_resolve_main(argv: "list[str]", client=None) -> int:
 
     print(
         "\nResolved this session: {accepted} accepted, {unavailable} marked "
-        "unavailable, {requeued} requeued, {kept} left as they were.".format(
-            **{k: tally.get(k, 0) for k in ("accepted", "unavailable", "requeued", "kept")}
+        "unavailable, {local} locally managed, {requeued} requeued, "
+        "{kept} left as they were.".format(
+            **{k: tally.get(k, 0)
+               for k in ("accepted", "unavailable", "local", "requeued", "kept")}
         )
     )
     if tally.get("accepted"):
