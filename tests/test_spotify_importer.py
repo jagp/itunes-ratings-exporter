@@ -365,7 +365,7 @@ def test_default_playlist_name_carries_the_date():
 
 def test_a_resume_searches_unseen_tracks_before_retrying_near_misses(tmp_path):
     # After a spent quota, requests -- not tracks -- are the scarce resource.
-    # Re-examining a recorded near miss costs the same three searches as a
+    # Re-examining a recorded near miss costs the same searches as a
     # track nobody has looked at, but only the latter can add anything to the
     # playlist, so the unseen work has to go first.
     csv_path, queue_path, _ = paths(tmp_path)

@@ -157,7 +157,13 @@ def score_candidate(row: "dict[str, Any]", candidate: "dict[str, Any]") -> Match
     return MatchScore(title, artist, duration, total)
 
 
-def accept_match(score: MatchScore, min_score: float = DEFAULT_MIN_SCORE) -> bool:
+def accept_match(
+    score: MatchScore,
+    min_score: float = DEFAULT_MIN_SCORE,
+    *,
+    artist_blank: bool = False,
+    swapped: bool = False,
+) -> bool:
     """Decide whether a scored candidate is really the same recording.
 
     This is the feature's central value judgement. A false positive puts a
@@ -167,8 +173,27 @@ def accept_match(score: MatchScore, min_score: float = DEFAULT_MIN_SCORE) -> boo
     recoverable, bad matches are not -- so this leans conservative and
     requires *both* title and artist to be independently plausible rather than
     letting a very strong signal on one carry a weak signal on the other.
+
+    Two narrower doors exist beside that main gate, both tuned on a real
+    resolve session (docs/superpowers/specs/2026-08-07-spotify-resolve-design.md):
+
+    ``artist_blank``
+        An empty artist field is missing data, not disagreement -- the same
+        reasoning as duration_similarity's neutral 0.5 for an unknown runtime.
+        But karaoke and cover versions of well-known songs often sit within
+        seconds of the original, so without artist evidence the other two
+        signals must be near-certain on their own.
+    ``swapped``
+        The row is being read with title and artist exchanged. Title and
+        artist agreeing is partly circular when the fields themselves produced
+        the query, so only a near-exact runtime is deterministic enough to
+        accept on.
     """
+    if artist_blank:
+        return score.title >= 0.95 and score.duration >= 0.8
     if score.title < 0.6 or score.artist < 0.6:
+        return False
+    if swapped and score.duration < 0.95:
         return False
     # A duration score of exactly 0 means both runtimes are known and are
     # _DURATION_HOPELESS_MS or more apart. That is proof of a different
@@ -208,22 +233,72 @@ class MatchResult(NamedTuple):
     score: Optional[MatchScore]
 
 
+# "Artist - Title" and "Artist - 05 - Title": how ripping tools write a
+# filename when the tags are empty.
+_FILENAME_SPLIT = re.compile(r"\s*-\s+")
+
+
+def row_interpretations(row: "dict[str, Any]") -> "list[tuple[dict[str, Any], str]]":
+    """Alternate readings of a library row, most literal first.
+
+    Real libraries hold rows whose fields are not what they claim: a title
+    that is really "Artist - Title" from a filename (artist field blank or
+    duplicating the prefix), or a title and artist that were entered swapped.
+    Each reading is a candidate interpretation to search and score; the
+    stricter acceptance gates for the speculative ones live in accept_match.
+    """
+    interpretations = [(row, "original")]
+    title = (row.get("title") or "").strip()
+    artist = (row.get("artist") or "").strip()
+
+    parts = [part for part in _FILENAME_SPLIT.split(title) if part]
+    if len(parts) >= 3 and parts[1].isdigit():
+        parts = [parts[0], " - ".join(parts[2:])]  # drop a track-number segment
+    if len(parts) == 2 and (not artist or parts[0].casefold() == artist.casefold()):
+        parsed = dict(row)
+        parsed["artist"], parsed["title"] = parts[0], parts[1]
+        interpretations.append((parsed, "parsed"))
+
+    if title and artist:
+        swapped = dict(row)
+        swapped["title"], swapped["artist"] = artist, title
+        interpretations.append((swapped, "swapped"))
+    return interpretations
+
+
 def find_match(row, client, min_score: float = DEFAULT_MIN_SCORE) -> MatchResult:
     """Search Spotify for one CSV row and return the best decision.
 
-    Stops at the first query that produces an acceptable match; if none do,
-    reports the highest-scoring candidate seen so the report can show the near
-    miss.
+    Tries each reading of the row in turn -- as written, then parsed from a
+    filename-style title, then with title and artist swapped. Stops at the
+    first query that produces an acceptable match; if none do, reports the
+    highest-scoring candidate seen so the report can show the near miss.
+
+    The speculative readings are kept cheap: queries already asked are never
+    repeated, and the swap is a single-search gamble rather than a full pass,
+    since it only pays off when the runtime then agrees almost exactly.
     """
     best_candidate = None
     best_score = None
-    for query in search_queries(row):
-        for candidate in client.search_tracks(query):
-            score = score_candidate(row, candidate)
-            if best_score is None or score.total > best_score.total:
-                best_candidate, best_score = candidate, score
-            if accept_match(score, min_score):
-                return MatchResult("matched", candidate, score)
+    asked: "set[str]" = set()
+    for interpretation, reading in row_interpretations(row):
+        queries = search_queries(interpretation)
+        if reading == "swapped":
+            queries = queries[:1]
+        artist_blank = not normalize(interpretation.get("artist") or "")
+        for query in queries:
+            if query in asked:
+                continue
+            asked.add(query)
+            for candidate in client.search_tracks(query):
+                score = score_candidate(interpretation, candidate)
+                if best_score is None or score.total > best_score.total:
+                    best_candidate, best_score = candidate, score
+                if accept_match(
+                    score, min_score,
+                    artist_blank=artist_blank, swapped=(reading == "swapped"),
+                ):
+                    return MatchResult("matched", candidate, score)
     if best_candidate is None:
         return MatchResult("not_found", None, None)
     return MatchResult("rejected", best_candidate, best_score)

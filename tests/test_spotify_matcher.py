@@ -5,6 +5,7 @@ from itunes_ratings_exporter.spotify.matcher import (
     duration_similarity,
     find_match,
     normalize,
+    row_interpretations,
     score_candidate,
     search_queries,
     strip_variant_suffix,
@@ -149,3 +150,76 @@ def test_find_match_keeps_the_best_of_several_bad_candidates():
     result = find_match(row, client)
     assert result.status == "rejected"
     assert result.candidate["name"] == "Hallelujah"
+
+
+# --- experience-tuned readings (cases lifted from a real resolve session) --
+
+
+def test_blank_artist_is_neutral_when_title_and_duration_are_certain():
+    # "Immortality" from a burned-CD playlist: artist blank, title and
+    # runtime exact. Missing data must not veto what the other two signals
+    # jointly prove.
+    row = {"title": "Immortality", "artist": "", "duration_ms": "328000"}
+    client = FakeClient(default=[track("Immortality", ["Pearl Jam"], 328_000)])
+    assert find_match(row, client).status == "matched"
+
+
+def test_blank_artist_does_not_accept_a_near_title():
+    # The karaoke/cover trap: a decorated title within seconds of the real
+    # runtime. Without artist evidence, anything short of near-certain title
+    # agreement stays a reject.
+    row = {"title": "Pink Moon", "artist": "", "duration_ms": "122000"}
+    cover = track("Pink Moon (In the Style of Nick Drake)", ["Zoom Karaoke"], 120_000)
+    assert find_match(row, FakeClient(default=[cover])).status == "rejected"
+
+
+def test_blank_artist_does_not_accept_a_loose_duration():
+    row = {"title": "Immortality", "artist": "", "duration_ms": "328000"}
+    client = FakeClient(default=[track("Immortality", ["Pearl Jam"], 336_000)])
+    assert find_match(row, client).status == "rejected"
+
+
+def test_filename_title_is_parsed_into_artist_and_title():
+    # "Nick Drake - Pink Moon" with a blank artist field: the parsed reading
+    # searches properly and passes the full gates.
+    row = {"title": "Nick Drake - Pink Moon", "artist": "", "duration_ms": "124000"}
+    parsed_query = 'track:"Pink Moon" artist:"Nick Drake"'
+    client = FakeClient({parsed_query: [track("Pink Moon", ["Nick Drake"], 124_000)]})
+    result = find_match(row, client)
+    assert result.status == "matched"
+    assert parsed_query in client.queries
+
+
+def test_filename_title_with_track_number_is_parsed():
+    # "Mogwai - 05 - Helicon": the number segment is ripper noise.
+    row = {"title": "Mogwai - 05 - Helicon", "artist": "Mogwai", "duration_ms": "360000"}
+    parsed = [r for r, kind in row_interpretations(row) if kind == "parsed"]
+    assert parsed and parsed[0]["title"] == "Helicon" and parsed[0]["artist"] == "Mogwai"
+
+
+def test_dashed_title_with_a_different_artist_is_not_parsed():
+    # "Dark & Long - Remastered" by Underworld: the dash is part of the
+    # title, and the filled artist field proves it.
+    row = {"title": "Dark & Long - Remastered", "artist": "Underworld"}
+    assert [kind for _, kind in row_interpretations(row)] == ["original", "swapped"]
+
+
+def test_swapped_fields_match_only_on_near_exact_duration():
+    # Title and artist entered the wrong way round. The swap is worth one
+    # search, and only a runtime agreeing almost exactly may confirm it.
+    row = {"title": "Radiohead", "artist": "Karma Police", "duration_ms": "263000"}
+    swap_query = 'track:"Karma Police" artist:"Radiohead"'
+    client = FakeClient({swap_query: [track("Karma Police", ["Radiohead"], 263_000)]})
+    assert find_match(row, client).status == "matched"
+
+    drifted = FakeClient({swap_query: [track("Karma Police", ["Radiohead"], 273_000)]})
+    assert find_match(row, drifted).status == "rejected"
+
+
+def test_swap_spends_exactly_one_extra_search():
+    row = {"title": "Radiohead", "artist": "Karma Police", "duration_ms": "263000"}
+    client = FakeClient()  # nothing matches anywhere
+    find_match(row, client)
+    swap_queries = [q for q in client.queries if q == 'track:"Karma Police" artist:"Radiohead"']
+    assert len(swap_queries) == 1
+    assert len(client.queries) == len(set(client.queries))  # no query repeated

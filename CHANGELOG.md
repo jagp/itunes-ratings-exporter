@@ -4,6 +4,16 @@
 
 ### Added
 
+- Experience-tuned matcher readings, distilled from a real resolve session
+  over a 121-track backlog: a blank artist field no longer vetoes a match
+  (it is missing data, not disagreement — accepted only on near-exact title
+  and runtime, which is what kept the karaoke covers out); filename-style
+  titles (`Artist - Title`, `Artist - 05 - Title`) are parsed and searched
+  as their parts when the artist field is blank or duplicates the prefix;
+  and a title/artist swap is tried as a single extra search, accepted only
+  on near-exact runtime. Queries are deduplicated across readings, and the
+  import's time estimate budgets four searches per track instead of three.
+
 - A `spotify-resolve` subcommand: an interactive terminal UI for the tracks
   the import could not place. Near misses whose recorded candidate re-scores
   ≥ 0.85 on both title and artist are reviewed as one list and accepted in

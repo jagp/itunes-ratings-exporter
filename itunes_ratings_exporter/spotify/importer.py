@@ -332,7 +332,7 @@ def run_import(
         flush()
 
         # Least-tried first. Spotify's budget is spent per request, not per
-        # track, and re-examining a known near miss costs the same three
+        # track, and re-examining a known near miss costs the same
         # searches as a track nobody has looked at yet -- but only one of the
         # two can put something in the playlist. On a resume after a spent
         # quota that ordering is the difference between progress and paying

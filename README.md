@@ -85,6 +85,14 @@ conservative: a wrong song in your playlist is silent and may go unnoticed, but
 a dropped song stays in the queue where you can see it. Lower `--min-score`
 to accept more, raise it to accept less.
 
+Rows whose metadata is broken in ways real libraries actually exhibit get
+extra readings, each tuned on a hand-resolved backlog: a blank artist field
+is treated as missing data rather than a mismatch (accepted only on
+near-exact title *and* runtime — covers and karaoke sit seconds from the
+original); a filename-style title like `Artist - 05 - Title` is parsed and
+searched as its parts; and title/artist entered swapped get one extra search,
+accepted only when the runtime agrees almost exactly.
+
 Every track is logged as it is decided, so a run cut short by a crash or a
 quota still leaves a scrollback record of exactly what was resolved. Pass
 `--quiet` for totals only.
@@ -224,7 +232,7 @@ quota can apply for extended quota to raise the ceiling.
 
 Because the ceiling is spent per *request* under either explanation, a resume
 searches never-seen tracks before retrying tracks it has already judged: a
-recorded near miss costs the same three searches as an unseen track but cannot
+recorded near miss costs the same searches as an unseen track but cannot
 add anything to the playlist.
 
 Additional exit codes: `4` input CSV missing or wrong shape, `5` authorization

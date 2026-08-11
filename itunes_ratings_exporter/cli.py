@@ -241,13 +241,15 @@ def spotify_import_main(argv: "list[str]", client=None) -> int:
 
     print(f"Matching {len(rows)} tracks against Spotify...")
     if args.rate > 0:
-        # Matching spends up to three searches on a track and stops at the
-        # first one that lands, so this is an upper bound, not a promise.
+        # Matching stops at the first query that lands, but an unresolved
+        # track can now spend extra searches on alternate readings of its
+        # metadata (matcher.py row_interpretations), so budget four per
+        # track as a working upper bound, not a promise.
         pending = outstanding or len(rows)
         print(
             "Paced at {:g} requests/second -- up to about {:.0f} minutes. "
             "A spent quota costs hours, so this errs slow.".format(
-                args.rate, pending * 3.0 / args.rate / 60.0
+                args.rate, pending * 4.0 / args.rate / 60.0
             )
         )
     try:
